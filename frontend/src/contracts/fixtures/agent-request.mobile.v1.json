@@ -1,0 +1,9 @@
+{
+  "message": "Add all F1 race weekends for 2026 with a one day reminder.",
+  "context": {
+    "event_visibility": "private",
+    "contract_version": "v1",
+    "client_platform": "mobile"
+  }
+}
+

@@ -1,0 +1,63 @@
+{
+  "result_type": "calendar_events",
+  "action": "create",
+  "summary": {
+    "operation": "add",
+    "events_created_count": 2,
+    "calendar_id": "primary",
+    "message": "Created 2 events."
+  },
+  "events": [
+    {
+      "id": "google-event-1",
+      "summary": "Bahrain Grand Prix",
+      "description": "Source: https://www.formula1.com",
+      "location": "Sakhir, Bahrain",
+      "status": "confirmed",
+      "html_link": "https://calendar.google.com/event?eid=abc",
+      "start_iso": "2026-03-08T18:00:00+03:00",
+      "end_iso": "2026-03-08T20:00:00+03:00",
+      "timezone": "Asia/Bahrain",
+      "is_all_day": false,
+      "source_calendar": "primary",
+      "reminders": {
+        "useDefault": false,
+        "overrides": [
+          {
+            "method": "popup",
+            "minutes": 1440
+          }
+        ]
+      }
+    }
+  ],
+  "meta": {
+    "default_calendar_id": "primary",
+    "current_datetime_utc": "2026-01-01T00:00:00+00:00",
+    "current_datetime_local": "2025-12-31T19:00:00-05:00",
+    "query": "fixture create request",
+    "web_search_mode": "public",
+    "resolved_time_window": {
+      "source_phrase": "for 2026",
+      "start_iso": "2026-01-01T00:00:00-05:00",
+      "end_iso": "2027-01-01T00:00:00-05:00",
+      "timezone": "America/New_York"
+    }
+  },
+  "tool_results": [
+    {
+      "name": "search_official_sources",
+      "result": {
+        "source": "jolpica",
+        "events_count": 24
+      }
+    },
+    {
+      "name": "batch_create_events",
+      "result": {
+        "created_count": 2
+      }
+    }
+  ]
+}
+

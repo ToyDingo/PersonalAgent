@@ -1,0 +1,11 @@
+C:\Users\jacka\PersonalAgent\frontend\src-tauri\target\release\deps\tauri_runtime-3539324856fb802c.d: C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\lib.rs C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\dpi.rs C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\monitor.rs C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\webview.rs C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\window.rs
+
+C:\Users\jacka\PersonalAgent\frontend\src-tauri\target\release\deps\libtauri_runtime-3539324856fb802c.rlib: C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\lib.rs C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\dpi.rs C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\monitor.rs C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\webview.rs C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\window.rs
+
+C:\Users\jacka\PersonalAgent\frontend\src-tauri\target\release\deps\libtauri_runtime-3539324856fb802c.rmeta: C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\lib.rs C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\dpi.rs C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\monitor.rs C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\webview.rs C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\window.rs
+
+C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\lib.rs:
+C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\dpi.rs:
+C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\monitor.rs:
+C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\webview.rs:
+C:\Users\jacka\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-runtime-2.10.1\src\window.rs:
