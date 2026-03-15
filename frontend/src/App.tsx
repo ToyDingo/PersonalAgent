@@ -189,64 +189,98 @@ function App() {
   }, [result])
 
   return (
-    <main className="app-shell">
-      <header className="app-header">
-        <h1>Personal Agent</h1>
-        <p className="subtitle">Desktop command center for your calendar AI.</p>
-      </header>
-
-      <div className="layout-grid">
-        <div className="column-left">
-          <InputPanel
-            message={message}
-            isPublicEvent={isPublicEvent}
-            isOnline={isOnline}
-            loading={loading}
-            onMessageChange={setMessage}
-            onPublicEventChange={setIsPublicEvent}
-            onSubmit={onSubmit}
-            onCancel={cancelActiveRequest}
-          />
-          <StatusTimeline
-            loading={loading}
-            hasResult={Boolean(result)}
-            isPendingConfirmation={isPendingConfirmation}
-            latestAction={result?.action ?? null}
-            phaseLabel={phaseLabel}
-            isOnline={isOnline}
-          />
-          {error && (
-            <section className="panel error">
-              <h2>Error</h2>
-              <pre>{error}</pre>
-            </section>
-          )}
+    <main className="desktop-shell">
+      <aside className="agent-sidebar">
+        <div className="agent-brand">
+          <span className="brand-dot" />
+          <div>
+            <h1>Personal Agent</h1>
+            <p>Calendar command center</p>
+          </div>
         </div>
+        <button
+          type="button"
+          className="sidebar-primary-button"
+          onClick={() => {
+            setMessage('')
+            setError(null)
+            setResult(null)
+            setSelectedCandidateIds([])
+            setPhaseLabel('Idle')
+          }}
+        >
+          New request
+        </button>
+        <div className="sidebar-section">
+          <p className="sidebar-label">Runtime</p>
+          <p className="sidebar-value">{isOnline ? 'Online' : 'Offline'}</p>
+          <p className="sidebar-value">{loading ? 'Processing' : 'Ready'}</p>
+        </div>
+        <div className="sidebar-section">
+          <p className="sidebar-label">Last action</p>
+          <p className="sidebar-value">{result?.action ?? 'none'}</p>
+        </div>
+      </aside>
 
-        <div className="column-right">
-          {result && <ActionSummaryCard response={result} />}
-          {result && confirmationOperation && (
-            <ConfirmationPanel
-              operationLabel={confirmationOperation}
-              candidates={pendingCandidates}
-              selectedCandidateIds={selectedCandidateIds}
+      <section className="workspace-area">
+        <header className="workspace-header">
+          <h2>Assistant Workspace</h2>
+          <p>Styled prototype merged into your existing production flow.</p>
+        </header>
+
+        <div className="layout-grid">
+          <div className="column-left">
+            <InputPanel
+              message={message}
+              isPublicEvent={isPublicEvent}
+              isOnline={isOnline}
               loading={loading}
-              onToggle={toggleCandidate}
-              onConfirm={() => confirmOperation(true)}
-              onCancel={() => confirmOperation(false)}
+              onMessageChange={setMessage}
+              onPublicEventChange={setIsPublicEvent}
+              onSubmit={onSubmit}
+              onCancel={cancelActiveRequest}
             />
-          )}
-          {result && (
-            <EventsTable title={`Events (${eventCount})`} events={result.events} />
-          )}
-          {result && (
-            <TechnicalDetails
-              response={result}
-              requestDurationMs={requestDurationMs}
+            <StatusTimeline
+              loading={loading}
+              hasResult={Boolean(result)}
+              isPendingConfirmation={isPendingConfirmation}
+              latestAction={result?.action ?? null}
+              phaseLabel={phaseLabel}
+              isOnline={isOnline}
             />
-          )}
+            {error && (
+              <section className="panel error">
+                <h2>Error</h2>
+                <pre>{error}</pre>
+              </section>
+            )}
+          </div>
+
+          <div className="column-right">
+            {result && <ActionSummaryCard response={result} />}
+            {result && confirmationOperation && (
+              <ConfirmationPanel
+                operationLabel={confirmationOperation}
+                candidates={pendingCandidates}
+                selectedCandidateIds={selectedCandidateIds}
+                loading={loading}
+                onToggle={toggleCandidate}
+                onConfirm={() => confirmOperation(true)}
+                onCancel={() => confirmOperation(false)}
+              />
+            )}
+            {result && (
+              <EventsTable title={`Events (${eventCount})`} events={result.events} />
+            )}
+            {result && (
+              <TechnicalDetails
+                response={result}
+                requestDurationMs={requestDurationMs}
+              />
+            )}
+          </div>
         </div>
-      </div>
+      </section>
     </main>
   )
 }

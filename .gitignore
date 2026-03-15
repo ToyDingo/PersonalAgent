@@ -12,3 +12,9 @@ data/
 *.pyd
 
 .cursor/
+prototype_import/
+
+# Frontend build outputs
+frontend/dist/
+frontend/node_modules/
+frontend/src-tauri/target/
