@@ -4,11 +4,49 @@ import { sendAgentMessage } from './api'
 import type { AgentResponse, CalendarEvent } from './types'
 import { InputPanel } from './components/InputPanel'
 import { StatusTimeline } from './components/StatusTimeline'
-import { ActionSummaryCard } from './components/ActionSummaryCard'
 import { ConfirmationPanel } from './components/ConfirmationPanel'
 import { EventsTable } from './components/EventsTable'
-import { TechnicalDetails } from './components/TechnicalDetails'
+import { AdminDebugPanel } from './components/AdminDebugPanel'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
+
+function detectRequestKind(text: string): 'edit' | 'delete' | 'add' | 'retrieve' {
+  const normalized = text.toLowerCase()
+  if (/\b(edit|update|change|rename|reschedule|move)\b/.test(normalized)) {
+    return 'edit'
+  }
+  if (/\b(delete|remove|cancel)\b/.test(normalized)) {
+    return 'delete'
+  }
+  if (/\b(add|create|insert)\b/.test(normalized)) {
+    return 'add'
+  }
+  return 'retrieve'
+}
+
+function phaseForResultAction(action: AgentResponse['action']): string {
+  if (action === 'edit_pending_confirmation') {
+    return 'Edit candidates found. Review and confirm changes.'
+  }
+  if (action === 'delete_pending_confirmation') {
+    return 'Delete candidates found. Review and confirm removal.'
+  }
+  if (action === 'add_pending_confirmation') {
+    return 'Add candidates found. Review and confirm creation.'
+  }
+  if (action === 'edit') {
+    return 'Edit completed.'
+  }
+  if (action === 'delete') {
+    return 'Delete completed.'
+  }
+  if (action === 'create') {
+    return 'Create completed.'
+  }
+  if (action === 'retrieve') {
+    return 'Search completed.'
+  }
+  return 'Completed'
+}
 
 function App() {
   const [message, setMessage] = useState('')
@@ -41,10 +79,27 @@ function App() {
     activeControllerRef.current = controller
     const start = performance.now()
     setLoading(true)
-    setPhaseLabel('Submitting request')
+    const requestKind = detectRequestKind(message)
+    setPhaseLabel(
+      requestKind === 'edit'
+        ? 'Starting edit request'
+        : requestKind === 'delete'
+          ? 'Starting delete request'
+          : requestKind === 'add'
+            ? 'Starting create request'
+            : 'Submitting request'
+    )
     setError(null)
     try {
-      setPhaseLabel('Awaiting server response')
+      setPhaseLabel(
+        requestKind === 'edit'
+          ? 'Finding events to edit'
+          : requestKind === 'delete'
+            ? 'Finding events to delete'
+            : requestKind === 'add'
+              ? 'Preparing events to create'
+              : 'Awaiting server response'
+      )
       const response = await sendAgentMessage(
         message.trim(),
         {
@@ -56,7 +111,13 @@ function App() {
             setPhaseLabel(
               attempt > 1
                 ? `Retrying request (${attempt - 1}/${maxRetries})`
-                : 'Awaiting server response'
+                : requestKind === 'edit'
+                  ? 'Finding events to edit'
+                  : requestKind === 'delete'
+                    ? 'Finding events to delete'
+                    : requestKind === 'add'
+                      ? 'Preparing events to create'
+                      : 'Awaiting server response'
             )
           },
         }
@@ -74,10 +135,10 @@ function App() {
         setSelectedCandidateIds(
           candidates.map((item) => item.id).filter((id): id is string => Boolean(id))
         )
-        setPhaseLabel('Awaiting user confirmation')
+        setPhaseLabel(phaseForResultAction(response.action))
       } else {
         setSelectedCandidateIds([])
-        setPhaseLabel('Completed')
+        setPhaseLabel(phaseForResultAction(response.action))
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -109,7 +170,21 @@ function App() {
     activeControllerRef.current = controller
     const start = performance.now()
     setLoading(true)
-    setPhaseLabel(confirm ? 'Applying confirmation' : 'Cancelling operation')
+    const operationType =
+      result.action === 'edit_pending_confirmation'
+        ? 'edit'
+        : result.action === 'delete_pending_confirmation'
+          ? 'delete'
+          : 'add'
+    setPhaseLabel(
+      confirm
+        ? operationType === 'edit'
+          ? 'Editing events in progress'
+          : operationType === 'delete'
+            ? 'Deleting events in progress'
+            : 'Creating events in progress'
+        : 'Cancelling operation'
+    )
     setError(null)
     try {
       const response = await sendAgentMessage(
@@ -128,7 +203,11 @@ function App() {
               attempt > 1
                 ? `Retrying confirmation (${attempt - 1}/${maxRetries})`
                 : confirm
-                  ? 'Submitting confirmation'
+                  ? operationType === 'edit'
+                    ? 'Submitting edit confirmation'
+                    : operationType === 'delete'
+                      ? 'Submitting delete confirmation'
+                      : 'Submitting create confirmation'
                   : 'Submitting cancel'
             )
           },
@@ -137,7 +216,15 @@ function App() {
       setResult(response)
       setRequestDurationMs(performance.now() - start)
       setSelectedCandidateIds([])
-      setPhaseLabel('Completed')
+      setPhaseLabel(
+        confirm
+          ? operationType === 'edit'
+            ? 'Editing completed'
+            : operationType === 'delete'
+              ? 'Delete completed'
+              : 'Create completed'
+          : 'Operation cancelled'
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
       setPhaseLabel('Request failed')
@@ -257,7 +344,6 @@ function App() {
           </div>
 
           <div className="column-right">
-            {result && <ActionSummaryCard response={result} />}
             {result && confirmationOperation && (
               <ConfirmationPanel
                 operationLabel={confirmationOperation}
@@ -272,15 +358,10 @@ function App() {
             {result && (
               <EventsTable title={`Events (${eventCount})`} events={result.events} />
             )}
-            {result && (
-              <TechnicalDetails
-                response={result}
-                requestDurationMs={requestDurationMs}
-              />
-            )}
           </div>
         </div>
       </section>
+      <AdminDebugPanel response={result} requestDurationMs={requestDurationMs} />
     </main>
   )
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import re
@@ -147,6 +148,13 @@ def _resolve_time_window(user_message: str, now_local: datetime) -> Dict[str, st
 
     local_tz_str = _normalize_timezone(str(now_local.tzinfo or timezone.utc))
     local_tz = now_local.tzinfo or timezone.utc
+    has_past_context = bool(
+        re.search(
+            r"\b(earlier|so far|past|history|historical|previous|already|"
+            r"before now|to date|up to now)\b",
+            text,
+        )
+    )
 
     def _iso_at_local_datetime(dt: datetime) -> str:
         normalized = dt.astimezone(local_tz)
@@ -165,6 +173,25 @@ def _resolve_time_window(user_message: str, now_local: datetime) -> Dict[str, st
             "source_phrase": phrase,
             "start_iso": _iso_at_local_day(start_day, 0, 0, 0),
             "end_iso": _iso_at_local_day(end_day, 23, 59, 59),
+            "timezone": local_tz_str,
+        }
+
+    def window_for_current_period(start_day: date, end_day: date, phrase: str) -> Dict[str, str]:
+        period_start = datetime.combine(start_day, time(0, 0, 0)).replace(tzinfo=local_tz)
+        period_end = datetime.combine(end_day, time(23, 59, 59)).replace(tzinfo=local_tz)
+        if has_past_context:
+            end_dt = now_local if now_local <= period_end else period_end
+            return {
+                "source_phrase": f"{phrase} (so far)",
+                "start_iso": _iso_at_local_datetime(period_start),
+                "end_iso": _iso_at_local_datetime(end_dt),
+                "timezone": local_tz_str,
+            }
+        start_dt = now_local if now_local >= period_start else period_start
+        return {
+            "source_phrase": phrase,
+            "start_iso": _iso_at_local_datetime(start_dt),
+            "end_iso": _iso_at_local_datetime(period_end),
             "timezone": local_tz_str,
         }
 
@@ -194,12 +221,7 @@ def _resolve_time_window(user_message: str, now_local: datetime) -> Dict[str, st
         else:
             saturday = today + timedelta(days=(5 - wd) % 7)
         sunday = saturday + timedelta(days=1)
-        return {
-            "source_phrase": "this weekend",
-            "start_iso": _iso_at_local_day(saturday, 0, 0, 0),
-            "end_iso": _iso_at_local_day(sunday, 23, 59, 59),
-            "timezone": local_tz_str,
-        }
+        return window_for_current_period(saturday, sunday, "this weekend")
 
     if "next weekend" in text:
         if wd == 6:
@@ -216,7 +238,7 @@ def _resolve_time_window(user_message: str, now_local: datetime) -> Dict[str, st
         }
 
     if "today" in text:
-        return window_for_day(today, "today")
+        return window_for_current_period(today, today, "today")
 
     if "tomorrow" in text:
         return window_for_day(today + timedelta(days=1), "tomorrow")
@@ -272,21 +294,41 @@ def _resolve_time_window(user_message: str, now_local: datetime) -> Dict[str, st
     next_days = re.search(r"\bnext\s+(\d+)\s+days?\b", text)
     if next_days:
         num_days = max(1, int(next_days.group(1)))
-        start_day = today
         end_day = today + timedelta(days=num_days)
-        return window_for_range(start_day, end_day, f"next {num_days} days")
+        return {
+            "source_phrase": f"next {num_days} days",
+            "start_iso": _iso_at_local_datetime(now_local),
+            "end_iso": _iso_at_local_day(end_day, 23, 59, 59),
+            "timezone": local_tz_str,
+        }
 
     next_weeks = re.search(r"\bnext\s+(\d+)\s+weeks?\b", text)
     if next_weeks:
         num_weeks = max(1, int(next_weeks.group(1)))
-        start_day = today
         end_day = today + timedelta(days=(num_weeks * 7))
-        return window_for_range(start_day, end_day, f"next {num_weeks} weeks")
+        return {
+            "source_phrase": f"next {num_weeks} weeks",
+            "start_iso": _iso_at_local_datetime(now_local),
+            "end_iso": _iso_at_local_day(end_day, 23, 59, 59),
+            "timezone": local_tz_str,
+        }
 
     if "this week" in text:
         start_day = today - timedelta(days=wd)
         end_day = start_day + timedelta(days=6)
-        return window_for_range(start_day, end_day, "this week")
+        return window_for_current_period(start_day, end_day, "this week")
+
+    if "this month" in text:
+        start_day = date(today.year, today.month, 1)
+        end_day = _end_of_month(today.year, today.month)
+        return window_for_current_period(start_day, end_day, "this month")
+
+    if "this quarter" in text:
+        current_quarter = ((today.month - 1) // 3) + 1
+        quarter_start_month = ((current_quarter - 1) * 3) + 1
+        start_day = date(today.year, quarter_start_month, 1)
+        end_day = _end_of_month(today.year, quarter_start_month + 2)
+        return window_for_current_period(start_day, end_day, "this quarter")
 
     in_days = re.search(r"\bin\s+(\d+)\s+days?\b", text)
     if in_days:
@@ -429,7 +471,11 @@ def _resolve_time_window(user_message: str, now_local: datetime) -> Dict[str, st
     if year_match:
         year_token = year_match.group(1)
         if year_token == "this year":
-            year_num = today.year
+            return window_for_current_period(
+                date(today.year, 1, 1),
+                date(today.year, 12, 31),
+                "this year",
+            )
         elif year_token == "next year":
             year_num = today.year + 1
         else:
@@ -864,6 +910,55 @@ def _detect_primary_intent(user_message: str) -> str:
     if re.search(r"\b(show|list|find|get|what|when|upcoming)\b", text):
         return "retrieve"
     return "unknown"
+
+
+def _extract_named_event_query(user_message: str) -> str | None:
+    """
+    Extract a compact title query from phrases like:
+    - "events named vet"
+    - "events called annual checkup"
+    """
+    text = user_message.lower()
+    match = re.search(r"\b(?:named|called)\s+([a-z0-9 _-]{2,80})", text)
+    if not match:
+        return None
+    candidate = match.group(1).strip(" '\"")
+    candidate = re.sub(
+        r"\s+\b(for|in|on|from|during|this|next|last|past|so)\b.*$",
+        "",
+        candidate,
+    ).strip()
+    if len(candidate) < 2:
+        return None
+    return candidate
+
+
+def _extract_bulk_rename_request(user_message: str) -> Dict[str, str] | None:
+    """
+    Extract rename intent from phrases like:
+    - "change the name of all events this year name vet robotic to vex robotics"
+    - "rename events called old title to new title"
+    """
+    text = user_message.strip()
+    if not re.search(r"\b(change|rename|update)\b", text, flags=re.IGNORECASE):
+        return None
+    if not re.search(r"\bto\b", text, flags=re.IGNORECASE):
+        return None
+
+    rename_match = re.search(
+        r"\b(?:named|name|called)\s+(.+?)\s+\bto\b\s+(.+)$",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not rename_match:
+        return None
+
+    old_name = rename_match.group(1).strip(" '\".,")
+    new_name = rename_match.group(2).strip(" '\".,")
+    if not old_name or not new_name:
+        return None
+
+    return {"old_name": old_name, "new_name": new_name}
 
 
 def _parse_iso_or_none(value: str | None) -> datetime | None:
@@ -1634,6 +1729,187 @@ async def run_agent_chat(
         runtime_context["resolved_time_window"] = resolved_time_window
     runtime_context["add_window_exceeds_one_year"] = add_window_exceeds_one_year
     merged_context = {**runtime_context, **context}
+    named_query = _extract_named_event_query(message)
+    rename_request = _extract_bulk_rename_request(message)
+
+    def _stage_direct_rename_edit(
+        old_name: str,
+        new_name: str,
+        *,
+        fallback_reason: str | None = None,
+    ) -> Dict[str, Any]:
+        force_allow_past = bool(re.search(r"\ball\b", message.lower()))
+        raw_edit_args: Dict[str, Any] = {
+            "query": old_name,
+            "summary": new_name,
+            "max_results": 200,
+            "edit_scope": "selected",
+            "allow_past": force_allow_past
+            or bool(runtime_context.get("explicit_past_requested", False)),
+        }
+        if resolved_time_window:
+            raw_edit_args["start_time"] = resolved_time_window.get("start_iso")
+            raw_edit_args["end_time"] = resolved_time_window.get("end_iso")
+        cleaned_edit_args = _clean_tool_args(
+            "edit_calendar_events",
+            raw_edit_args,
+            now_utc=now_utc,
+            explicit_past_requested=bool(runtime_context.get("explicit_past_requested", False)),
+            resolved_time_window=resolved_time_window,
+            default_event_options=default_event_options,
+        )
+        edit_result = edit_calendar_events.invoke(cleaned_edit_args)
+        edit_candidates = (
+            edit_result.get("candidates", [])
+            if isinstance(edit_result, dict) and isinstance(edit_result.get("candidates"), list)
+            else []
+        )
+
+        if edit_candidates:
+            confirmation_id = str(uuid4())
+            PENDING_CONFIRMATIONS[confirmation_id] = {
+                "operation": "edit",
+                "candidates": edit_candidates,
+                "update_fields": (edit_result or {}).get("update_fields", {"summary": new_name}),
+                "edit_scope": str((edit_result or {}).get("edit_scope", "selected")),
+                "created_at_utc": runtime_context["current_datetime_utc"],
+            }
+            summary: Dict[str, Any] = {
+                "calendar_id": runtime_context["default_calendar_id"],
+                "operation": "edit",
+                "confirmation_id": confirmation_id,
+                "candidate_count": len(edit_candidates),
+                "candidates": edit_candidates,
+                "update_fields": (edit_result or {}).get("update_fields", {"summary": new_name}),
+                "edit_scope": str((edit_result or {}).get("edit_scope", "selected")),
+                "series": (edit_result or {}).get("series", []),
+                "series_count": int((edit_result or {}).get("series_count", 0)),
+                "not_found_count": int((edit_result or {}).get("not_found_count", 0)),
+                "not_found": (edit_result or {}).get("not_found", []),
+                "diagnostics": (edit_result or {}).get("diagnostics", {}),
+            }
+            if fallback_reason:
+                summary["fallback_reason"] = fallback_reason
+            return {
+                "result_type": "calendar_events",
+                "action": "edit_pending_confirmation",
+                "summary": summary,
+                "events": edit_candidates,
+                "meta": {
+                    "default_calendar_id": runtime_context["default_calendar_id"],
+                    "current_datetime_utc": runtime_context["current_datetime_utc"],
+                    "current_datetime_local": runtime_context["current_datetime_local"],
+                    "query": message,
+                },
+                "tool_results": [
+                    {
+                        "name": "edit_calendar_events",
+                        "args": cleaned_edit_args,
+                        "result": edit_result,
+                    }
+                ],
+            }
+
+        summary = {
+            "calendar_id": runtime_context["default_calendar_id"],
+            "events_count": 0,
+            "events": [],
+            "error": "no_editable_events_found",
+            "message": "No matching events were found to edit for this request.",
+        }
+        if isinstance(edit_result, dict) and edit_result.get("error"):
+            summary["edit_error"] = edit_result.get("error")
+            summary["edit_message"] = edit_result.get("message")
+        if fallback_reason:
+            summary["fallback_reason"] = fallback_reason
+        return {
+            "result_type": "calendar_events",
+            "action": "none",
+            "summary": summary,
+            "events": [],
+            "meta": {
+                "default_calendar_id": runtime_context["default_calendar_id"],
+                "current_datetime_utc": runtime_context["current_datetime_utc"],
+                "current_datetime_local": runtime_context["current_datetime_local"],
+                "query": message,
+            },
+            "tool_results": [
+                {
+                    "name": "edit_calendar_events",
+                    "args": cleaned_edit_args,
+                    "result": edit_result,
+                }
+            ],
+        }
+
+    # Fast path for simple retrieval prompts so calendar lookups do not depend on
+    # an LLM round-trip (avoids user-facing timeouts when model connectivity is flaky).
+    if (
+        primary_intent == "retrieve"
+        and named_query
+        and web_search_mode == "private"
+        and not re.search(r"\b(add|create|delete|remove|edit|update)\b", message.lower())
+    ):
+        raw_search_args: Dict[str, Any] = {
+            "query": named_query,
+            "max_results": 200,
+            "allow_past": bool(runtime_context.get("explicit_past_requested", False)),
+        }
+        if resolved_time_window:
+            raw_search_args["start_time"] = resolved_time_window.get("start_iso")
+            raw_search_args["end_time"] = resolved_time_window.get("end_iso")
+        cleaned_search_args = _clean_tool_args(
+            "search_calendar_events",
+            raw_search_args,
+            now_utc=now_utc,
+            explicit_past_requested=bool(runtime_context.get("explicit_past_requested", False)),
+            resolved_time_window=resolved_time_window,
+            default_event_options=default_event_options,
+        )
+        fast_events = search_events(
+            query=cleaned_search_args.get("query"),
+            max_results=int(cleaned_search_args.get("max_results", 200)),
+            start_time=cleaned_search_args.get("start_time"),
+            end_time=cleaned_search_args.get("end_time"),
+            weekday=cleaned_search_args.get("weekday"),
+            count=cleaned_search_args.get("count"),
+            allow_past=bool(cleaned_search_args.get("allow_past", False)),
+        )
+        fast_result = {
+            "events": normalize_events(fast_events),
+            "effective_start_time": cleaned_search_args.get("start_time"),
+            "effective_end_time": cleaned_search_args.get("end_time"),
+            "allow_past": bool(cleaned_search_args.get("allow_past", False)),
+        }
+        return {
+            "result_type": "calendar_events",
+            "action": "retrieve",
+            "summary": {
+                "calendar_id": runtime_context["default_calendar_id"],
+                "events_found_count": len(fast_result.get("events", [])),
+                "query": named_query,
+            },
+            "events": fast_result.get("events", []),
+            "meta": {
+                "default_calendar_id": runtime_context["default_calendar_id"],
+                "current_datetime_utc": runtime_context["current_datetime_utc"],
+                "current_datetime_local": runtime_context["current_datetime_local"],
+                "query": message,
+            },
+            "tool_results": [
+                {
+                    "name": "search_calendar_events",
+                    "args": cleaned_search_args,
+                    "result": fast_result,
+                }
+            ],
+        }
+
+    if primary_intent == "edit" and rename_request and web_search_mode == "private":
+        return _stage_direct_rename_edit(
+            old_name=rename_request["old_name"],
+            new_name=rename_request["new_name"],
+        )
 
     tools = [
         get_upcoming_events,
@@ -1654,6 +1930,13 @@ async def run_agent_chat(
         temperature=0,
     )
     model_with_tools = model.bind_tools(tools)
+    model_timeout_seconds = 30.0
+
+    async def _ainvoke_model(call_messages: List[Any]) -> Any:
+        return await asyncio.wait_for(
+            model_with_tools.ainvoke(call_messages),
+            timeout=model_timeout_seconds,
+        )
 
     # Policy-critical prompt: changes here directly affect routing, safety,
     # and data accuracy for all calendar operations.
@@ -1724,7 +2007,73 @@ Performance rules:
     tool_results: List[Dict[str, Any]] = []
     tool_result_cache: Dict[str, Dict[str, Any]] = {}
     web_search_unavailable_in_turn = False
-    response = await model_with_tools.ainvoke(messages)
+    try:
+        response = await _ainvoke_model(messages)
+    except Exception as exc:
+        if primary_intent == "edit" and rename_request:
+            return _stage_direct_rename_edit(
+                old_name=rename_request["old_name"],
+                new_name=rename_request["new_name"],
+                fallback_reason=f"llm_unavailable:{type(exc).__name__}",
+            )
+        if primary_intent == "retrieve":
+            fallback_query = named_query
+            fallback_args: Dict[str, Any] = {
+                "query": fallback_query,
+                "max_results": 200,
+                "allow_past": bool(runtime_context.get("explicit_past_requested", False)),
+            }
+            if resolved_time_window:
+                fallback_args["start_time"] = resolved_time_window.get("start_iso")
+                fallback_args["end_time"] = resolved_time_window.get("end_iso")
+            cleaned_fallback_args = _clean_tool_args(
+                "search_calendar_events",
+                fallback_args,
+                now_utc=now_utc,
+                explicit_past_requested=bool(runtime_context.get("explicit_past_requested", False)),
+                resolved_time_window=resolved_time_window,
+                default_event_options=default_event_options,
+            )
+            fallback_events = search_events(
+                query=cleaned_fallback_args.get("query"),
+                max_results=int(cleaned_fallback_args.get("max_results", 200)),
+                start_time=cleaned_fallback_args.get("start_time"),
+                end_time=cleaned_fallback_args.get("end_time"),
+                weekday=cleaned_fallback_args.get("weekday"),
+                count=cleaned_fallback_args.get("count"),
+                allow_past=bool(cleaned_fallback_args.get("allow_past", False)),
+            )
+            fallback_result = {
+                "events": normalize_events(fallback_events),
+                "effective_start_time": cleaned_fallback_args.get("start_time"),
+                "effective_end_time": cleaned_fallback_args.get("end_time"),
+                "allow_past": bool(cleaned_fallback_args.get("allow_past", False)),
+            }
+            return {
+                "result_type": "calendar_events",
+                "action": "retrieve",
+                "summary": {
+                    "calendar_id": runtime_context["default_calendar_id"],
+                    "events_found_count": len(fallback_result.get("events", [])),
+                    "fallback_reason": "llm_unavailable",
+                    "warning": f"Recovered with direct calendar search after model error: {type(exc).__name__}",
+                },
+                "events": fallback_result.get("events", []),
+                "meta": {
+                    "default_calendar_id": runtime_context["default_calendar_id"],
+                    "current_datetime_utc": runtime_context["current_datetime_utc"],
+                    "current_datetime_local": runtime_context["current_datetime_local"],
+                    "query": message,
+                },
+                "tool_results": [
+                    {
+                        "name": "search_calendar_events",
+                        "args": cleaned_fallback_args,
+                        "result": fallback_result,
+                    }
+                ],
+            }
+        raise
 
     def _invoke_tool_safe(tname: str, targs: Dict[str, Any]) -> Dict[str, Any]:
         target_tool = tool_map[tname]
@@ -1865,7 +2214,12 @@ Performance rules:
                 )
             )
 
-        response = await model_with_tools.ainvoke(messages)
+        try:
+            response = await _ainvoke_model(messages)
+        except Exception:
+            if tool_results:
+                break
+            raise
 
     events_for_ui: List[Dict[str, Any]] = []
     delete_result: Dict[str, Any] | None = None

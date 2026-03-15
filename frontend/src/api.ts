@@ -4,7 +4,7 @@ import type { AgentRequestContext, AgentResponse } from './types'
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 
-const DEFAULT_TIMEOUT_MS = 20_000
+const DEFAULT_TIMEOUT_MS = 60_000
 const MAX_RETRIES = 1
 
 function isRetryableStatus(status: number): boolean {

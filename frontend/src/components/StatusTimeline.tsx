@@ -28,6 +28,13 @@ export function StatusTimeline({
       <h2>Status</h2>
       <div className="status-row">
         <span className={`status-pill ${loading ? 'is-busy' : 'is-ready'}`}>{status}</span>
+        {loading && (
+          <span className="loading-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+        )}
         <span className={`status-pill ${isOnline ? 'is-online' : 'is-offline'}`}>
           {isOnline ? 'Online' : 'Offline'}
         </span>
