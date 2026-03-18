@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "contract:check": "node ./scripts/validate-contract-fixtures.mjs",
+    "prompt:validate": "node ./scripts/run-prompt-validation.mjs",
     "qa:desktop": "npm run lint && npm run contract:check && npm run build",
     "preview": "vite preview",
     "tauri:dev": "tauri dev",

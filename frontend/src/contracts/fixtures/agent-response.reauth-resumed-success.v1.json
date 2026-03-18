@@ -1,0 +1,72 @@
+{
+  "result_type": "calendar_events",
+  "action": "retrieve",
+  "summary": {
+    "events_found_count": 2,
+    "calendar_id": "primary",
+    "events": [
+      {
+        "id": "evt_1",
+        "summary": "Vet robotics training",
+        "description": null,
+        "location": null,
+        "status": "confirmed",
+        "html_link": null,
+        "start_iso": "2026-03-18T18:00:00-04:00",
+        "end_iso": "2026-03-18T19:00:00-04:00",
+        "timezone": "America/New_York",
+        "is_all_day": false,
+        "source_calendar": "primary"
+      },
+      {
+        "id": "evt_2",
+        "summary": "Parent meeting",
+        "description": null,
+        "location": null,
+        "status": "confirmed",
+        "html_link": null,
+        "start_iso": "2026-03-18T20:00:00-04:00",
+        "end_iso": "2026-03-18T21:00:00-04:00",
+        "timezone": "America/New_York",
+        "is_all_day": false,
+        "source_calendar": "primary"
+      }
+    ]
+  },
+  "events": [
+    {
+      "id": "evt_1",
+      "summary": "Vet robotics training",
+      "description": null,
+      "location": null,
+      "status": "confirmed",
+      "html_link": null,
+      "start_iso": "2026-03-18T18:00:00-04:00",
+      "end_iso": "2026-03-18T19:00:00-04:00",
+      "timezone": "America/New_York",
+      "is_all_day": false,
+      "source_calendar": "primary"
+    }
+  ],
+  "meta": {
+    "default_calendar_id": "primary",
+    "current_datetime_utc": "2026-03-18T00:00:00+00:00",
+    "current_datetime_local": "2026-03-17T20:00:00-04:00",
+    "query": "what events do I have today"
+  },
+  "tool_results": [
+    {
+      "name": "search_calendar_events",
+      "arguments": {
+        "query": null,
+        "max_results": 200,
+        "start_time": "2026-03-18T00:00:00-04:00",
+        "end_time": "2026-03-18T23:59:59-04:00",
+        "allow_past": false
+      },
+      "result": {
+        "events": []
+      }
+    }
+  ]
+}

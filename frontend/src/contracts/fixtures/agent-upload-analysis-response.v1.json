@@ -1,0 +1,55 @@
+{
+  "result_type": "calendar_events",
+  "action": "document_pending_confirmation",
+  "summary": {
+    "calendar_id": "primary",
+    "operation": "document_analysis",
+    "confirmation_id": "confirm-0001",
+    "upload_id": "upload-0001",
+    "filename": "sample.txt",
+    "candidate_count": 2,
+    "operation_counts": {
+      "add": 1,
+      "edit": 1,
+      "delete": 0
+    },
+    "warnings": [],
+    "analysis_status": "ready",
+    "candidates": [
+      {
+        "id": "cand-1",
+        "summary": "Team meeting",
+        "description": "ADD|Team meeting|2026-03-20T14:00:00-04:00|2026-03-20T15:00:00-04:00|America/New_York",
+        "location": null,
+        "status": "document_candidate",
+        "html_link": null,
+        "start_iso": "2026-03-20T14:00:00-04:00",
+        "end_iso": "2026-03-20T15:00:00-04:00",
+        "timezone": "America/New_York",
+        "is_all_day": false,
+        "source_calendar": "document_upload"
+      },
+      {
+        "id": "cand-2",
+        "summary": "Edit event abc123",
+        "description": "EDIT|abc123|location=HQ",
+        "location": null,
+        "status": "document_candidate",
+        "html_link": null,
+        "start_iso": null,
+        "end_iso": null,
+        "timezone": "UTC",
+        "is_all_day": false,
+        "source_calendar": "document_upload"
+      }
+    ]
+  },
+  "events": [],
+  "meta": {
+    "default_calendar_id": "primary",
+    "current_datetime_utc": "2026-03-18T18:00:00+00:00",
+    "current_datetime_local": "2026-03-18T14:00:00-04:00",
+    "query": "document_upload:upload-0001"
+  },
+  "tool_results": []
+}

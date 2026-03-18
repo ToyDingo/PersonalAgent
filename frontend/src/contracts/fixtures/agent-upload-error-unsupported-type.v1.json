@@ -1,0 +1,4 @@
+{
+  "error": "unsupported_file_type",
+  "message": "Unsupported file type '.csv'. Allowed: ['.docx', '.pdf', '.txt']"
+}

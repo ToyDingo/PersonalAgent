@@ -25,6 +25,12 @@ from app.google.calendar_service import (
     search_events,
     update_events_by_id,
 )
+from app.google.auth import (
+    GOOGLE_CALENDAR_REAUTH_ENDPOINT,
+    GOOGLE_CALENDAR_SERVICE_ID,
+    GOOGLE_CALENDAR_SERVICE_NAME,
+    ServiceAuthRequiredError,
+)
 from app.llm.openai_client import OpenAIClient
 from app.web.search_service import search_events_on_web
 
@@ -53,10 +59,151 @@ def _derive_action(tool_results: List[Dict[str, Any]]) -> str:
     return "none"
 
 
+def _build_reauth_required_response(
+    *,
+    runtime_context: Dict[str, Any],
+    query: str,
+    service: str,
+    service_display_name: str,
+    reauth_endpoint: str,
+    message: str,
+    tool_results: List[Dict[str, Any]] | None = None,
+    resume_context: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    summary: Dict[str, Any] = {
+        "calendar_id": runtime_context["default_calendar_id"],
+        "error_code": "service_auth_required",
+        "error": "google_auth_reauthorization_required",
+        "message": message,
+        "requires_reauth": True,
+        "service": service,
+        "service_display_name": service_display_name,
+        "reauth_endpoint": reauth_endpoint,
+        "resume_supported": True,
+        "resume_context": resume_context or {},
+    }
+    return {
+        "result_type": "calendar_events",
+        "action": "reauthorization_required",
+        "summary": summary,
+        "events": [],
+        "meta": {
+            "default_calendar_id": runtime_context["default_calendar_id"],
+            "current_datetime_utc": runtime_context["current_datetime_utc"],
+            "current_datetime_local": runtime_context["current_datetime_local"],
+            "query": query,
+        },
+        "tool_results": tool_results or [],
+    }
+
+
 # Single-user local app: in-memory confirmation state is enough for v1 UI flow.
 PENDING_CONFIRMATIONS: Dict[str, Dict[str, Any]] = {}
 WEB_SEARCH_OPENAI_API_KEY = ""
 WEB_SEARCH_MODEL = "gpt-4o-mini"
+
+
+def _build_runtime_context_now() -> Dict[str, Any]:
+    now_utc = datetime.now(timezone.utc)
+    now_local = datetime.now().astimezone()
+    max_add_event_datetime_local = now_local + timedelta(days=365)
+    return {
+        "current_datetime_utc": now_utc.isoformat(),
+        "current_datetime_local": now_local.isoformat(),
+        "max_add_event_datetime_local": max_add_event_datetime_local.isoformat(),
+        "default_calendar_id": "primary",
+    }
+
+
+def stage_document_candidates_for_confirmation(
+    *,
+    upload_id: str,
+    filename: str,
+    analysis: Dict[str, Any],
+) -> Dict[str, Any]:
+    runtime_context = _build_runtime_context_now()
+    candidates_raw = analysis.get("candidates", []) if isinstance(analysis, dict) else []
+    candidates = [item for item in candidates_raw if isinstance(item, dict)]
+    if not candidates:
+        return {
+            "result_type": "calendar_events",
+            "action": "none",
+            "summary": {
+                "calendar_id": runtime_context["default_calendar_id"],
+                "error": "no_upload_candidates_found",
+                "message": "No calendar operations were detected in the uploaded document.",
+                "upload_id": upload_id,
+                "filename": filename,
+                "warnings": (analysis or {}).get("warnings", []),
+            },
+            "events": [],
+            "meta": {
+                "default_calendar_id": runtime_context["default_calendar_id"],
+                "current_datetime_utc": runtime_context["current_datetime_utc"],
+                "current_datetime_local": runtime_context["current_datetime_local"],
+                "query": f"document_upload:{upload_id}",
+            },
+            "tool_results": [],
+        }
+
+    ui_candidates: List[Dict[str, Any]] = []
+    for item in candidates:
+        op = str(item.get("operation", "add")).lower()
+        summary = item.get("summary")
+        if not summary and op == "add":
+            summary = "Add event from document"
+        elif not summary and op == "edit":
+            summary = f"Edit event {item.get('target_event_id') or '(unknown id)'}"
+        elif not summary and op == "delete":
+            summary = f"Delete event {item.get('target_event_id') or '(unknown id)'}"
+        ui_candidates.append(
+            {
+                "id": str(item.get("id") or uuid4()),
+                "summary": summary,
+                "description": item.get("source_excerpt"),
+                "location": None,
+                "status": "document_candidate",
+                "html_link": None,
+                "start_iso": item.get("start_iso"),
+                "end_iso": item.get("end_iso"),
+                "timezone": item.get("timezone") or "UTC",
+                "is_all_day": False,
+                "source_calendar": "document_upload",
+            }
+        )
+
+    confirmation_id = str(uuid4())
+    PENDING_CONFIRMATIONS[confirmation_id] = {
+        "operation": "document_analysis",
+        "upload_id": upload_id,
+        "filename": filename,
+        "candidates": candidates,
+        "created_at_utc": runtime_context["current_datetime_utc"],
+    }
+    return {
+        "result_type": "calendar_events",
+        "action": "document_pending_confirmation",
+        "summary": {
+            "calendar_id": runtime_context["default_calendar_id"],
+            "operation": "document_analysis",
+            "confirmation_id": confirmation_id,
+            "upload_id": upload_id,
+            "filename": filename,
+            "candidate_count": len(ui_candidates),
+            "candidates": ui_candidates,
+            "operation_counts": (analysis or {}).get("operation_counts", {}),
+            "warnings": (analysis or {}).get("warnings", []),
+            "analysis_status": (analysis or {}).get("analysis_status", "ready"),
+        },
+        "events": ui_candidates,
+        "meta": {
+            "default_calendar_id": runtime_context["default_calendar_id"],
+            "current_datetime_utc": runtime_context["current_datetime_utc"],
+            "current_datetime_local": runtime_context["current_datetime_local"],
+            "query": f"document_upload:{upload_id}",
+        },
+        "tool_results": [],
+    }
 
 
 def _resolve_web_search_mode(context: Dict[str, Any]) -> str:
@@ -322,6 +469,17 @@ def _resolve_time_window(user_message: str, now_local: datetime) -> Dict[str, st
         start_day = date(today.year, today.month, 1)
         end_day = _end_of_month(today.year, today.month)
         return window_for_current_period(start_day, end_day, "this month")
+
+    if "last month" in text or "previous month" in text:
+        if today.month == 1:
+            year_num = today.year - 1
+            month_num = 12
+        else:
+            year_num = today.year
+            month_num = today.month - 1
+        start_day = date(year_num, month_num, 1)
+        end_day = _end_of_month(year_num, month_num)
+        return window_for_range(start_day, end_day, "last month")
 
     if "this quarter" in text:
         current_quarter = ((today.month - 1) // 3) + 1
@@ -933,6 +1091,102 @@ def _extract_named_event_query(user_message: str) -> str | None:
     return candidate
 
 
+def _extract_general_search_term(
+    user_message: str,
+    resolved_time_window: Dict[str, str] | None = None,
+) -> str | None:
+    """
+    Extract a general calendar search term from retrieve-style prompts.
+
+    Examples:
+    - "show me what is on my calendar this week" -> None
+    - "show dentist appointments this week" -> "dentist"
+    - "what vex robotics meetings do I have next month" -> "vex robotics"
+    """
+    text = user_message.lower().strip()
+    source_phrase = ""
+    if isinstance(resolved_time_window, dict):
+        source_phrase = str(resolved_time_window.get("source_phrase") or "").lower().strip()
+    if source_phrase:
+        normalized = source_phrase.replace("(so far)", "").strip()
+        candidates = [source_phrase, normalized]
+        for phrase in candidates:
+            if phrase:
+                text = re.sub(rf"\b{re.escape(phrase)}\b", " ", text)
+
+    patterns = [
+        r"\b(show|list|display|find|get|what|which|when|who|where)\b",
+        r"\b(do i have|i have|on my)\b",
+        r"\b(me|my|mine)\b",
+        r"\b(calendar|schedule|agenda)\b",
+        r"\b(events?|appointments?|meetings?|reminders?)\b",
+        r"\b(for|in|on|at|from|during|so far)\b",
+        r"\b(please|can you|could you)\b",
+    ]
+    for pattern in patterns:
+        text = re.sub(pattern, " ", text)
+
+    text = re.sub(r"\s+", " ", text).strip(" -_,.:;!?\"'")
+    if len(text.strip()) < 2:
+        return None
+    if text in {"all", "everything", "anything", "something"}:
+        return None
+    return text
+
+
+def _extract_delete_query(
+    user_message: str,
+    resolved_time_window: Dict[str, str] | None = None,
+) -> str | None:
+    """
+    Extract a candidate delete-search query from delete-style prompts.
+    Returns None when the prompt is broad (e.g. "delete everything next week").
+    """
+    text = user_message.lower().strip()
+    original_text = text
+    source_phrase = ""
+    if isinstance(resolved_time_window, dict):
+        source_phrase = str(resolved_time_window.get("source_phrase") or "").lower().strip()
+    if source_phrase:
+        normalized = source_phrase.replace("(so far)", "").strip()
+        candidates = [source_phrase, normalized]
+        for phrase in candidates:
+            if phrase:
+                text = re.sub(rf"\b{re.escape(phrase)}\b", " ", text)
+
+    patterns = [
+        r"\b(delete|remove|cancel|clear|erase)\b",
+        r"\b(get rid of)\b",
+        r"\b(my|the|any|these|those)\b",
+        r"\b(calendar|schedule|agenda)\b",
+        r"\b(events?|appointments?|meetings?|reminders?)\b",
+        r"\b(for|in|on|at|from|during|so far)\b",
+        r"\b(please|can you|could you)\b",
+    ]
+    for pattern in patterns:
+        text = re.sub(pattern, " ", text)
+
+    text = re.sub(r"\s+", " ", text).strip(" -_,.:;!?\"'")
+
+    # Time/date-only prompts (e.g. "3pm est") should not become a title query.
+    # Deletion should instead use the resolved time window and candidate selection.
+    temporal_only = re.sub(
+        r"\b(\d{1,2}(:\d{2})?\s?(am|pm)?|est|edt|cst|cdt|mst|mdt|pst|pdt|utc|gmt|tomorrow|today|tonight|morning|afternoon|evening)\b",
+        " ",
+        text,
+    )
+    temporal_only = re.sub(r"[/\-:,]", " ", temporal_only)
+    temporal_only = re.sub(r"\s+", " ", temporal_only).strip(" -_,.:;!?\"'")
+
+    if not temporal_only:
+        return None
+    if len(text.strip()) < 2:
+        return None
+    if text in {"all", "everything", "anything", "something"}:
+        return None
+    return text
+
+
 def _extract_bulk_rename_request(user_message: str) -> Dict[str, str] | None:
     """
     Extract rename intent from phrases like:
@@ -1510,6 +1764,7 @@ def _handle_operation_confirmation_context(
             "add": "add_cancelled",
             "delete": "delete_cancelled",
             "edit": "edit_cancelled",
+            "document_analysis": "document_cancelled",
         }
         cancelled_action = cancelled_action_map.get(operation, "none")
         return {
@@ -1539,6 +1794,204 @@ def _handle_operation_confirmation_context(
         requested_ids = []
     selected_ids = [str(item) for item in requested_ids if str(item).strip()]
 
+    if operation == "document_analysis":
+        candidates = pending.get("candidates", [])
+        if not isinstance(candidates, list):
+            candidates = []
+        selected_set = set(selected_ids)
+        selected_candidates = [
+            item
+            for item in candidates
+            if isinstance(item, dict)
+            and str(item.get("id", "")).strip()
+            and (
+                not selected_set
+                or str(item.get("id", "")).strip() in selected_set
+            )
+        ]
+        created_events: List[Dict[str, Any]] = []
+        updated_events: List[Dict[str, Any]] = []
+        deleted_events: List[Dict[str, Any]] = []
+        apply_errors: List[Dict[str, Any]] = []
+        applied_counts = {"add": 0, "edit": 0, "delete": 0}
+        for candidate in selected_candidates:
+            op = str(candidate.get("operation", "")).lower().strip()
+            try:
+                if op == "add":
+                    payload = candidate.get("payload")
+                    if not isinstance(payload, dict):
+                        apply_errors.append(
+                            {
+                                "candidate_id": candidate.get("id"),
+                                "error": "invalid_add_payload",
+                            }
+                        )
+                        continue
+                    created = create_or_update_event(payload)
+                    created_events.append(normalize_event(created))
+                    applied_counts["add"] += 1
+                    continue
+                if op == "edit":
+                    target_event_id = str(candidate.get("target_event_id", "")).strip()
+                    update_fields = candidate.get("update_fields")
+                    if not target_event_id or not isinstance(update_fields, dict):
+                        apply_errors.append(
+                            {
+                                "candidate_id": candidate.get("id"),
+                                "error": "invalid_edit_candidate",
+                            }
+                        )
+                        continue
+                    update_result = update_events_by_id(
+                        event_ids=[target_event_id],
+                        update_fields=update_fields,
+                        update_series=False,
+                    )
+                    updated_events.extend(update_result.get("updated_events", []))
+                    if int(update_result.get("updated_count", 0)) <= 0:
+                        apply_errors.append(
+                            {
+                                "candidate_id": candidate.get("id"),
+                                "error": "edit_not_applied",
+                                "not_found": update_result.get("not_found", []),
+                            }
+                        )
+                    else:
+                        applied_counts["edit"] += int(update_result.get("updated_count", 0))
+                    continue
+                if op == "delete":
+                    target_event_id = str(candidate.get("target_event_id", "")).strip()
+                    delete_ids: List[str] = []
+                    if target_event_id:
+                        delete_ids = [target_event_id]
+                    else:
+                        delete_query = str(candidate.get("delete_query", "")).strip()
+                        start_iso = str(candidate.get("start_iso") or "").strip() or None
+                        end_iso = str(candidate.get("end_iso") or "").strip() or None
+                        if not delete_query:
+                            apply_errors.append(
+                                {
+                                    "candidate_id": candidate.get("id"),
+                                    "error": "invalid_delete_candidate",
+                                }
+                            )
+                            continue
+                        resolved = resolve_delete_candidates(
+                            event_ids=None,
+                            query=delete_query,
+                            start_time=start_iso,
+                            end_time=end_iso,
+                            max_results=20,
+                            allow_past=True,
+                        )
+                        delete_ids = [
+                            str(item.get("id"))
+                            for item in normalize_events(resolved.get("candidates", []))
+                            if isinstance(item, dict) and item.get("id")
+                        ]
+                        if not delete_ids:
+                            apply_errors.append(
+                                {
+                                    "candidate_id": candidate.get("id"),
+                                    "error": "delete_not_applied",
+                                    "not_found": [delete_query],
+                                }
+                            )
+                            continue
+                    delete_result = delete_events(
+                        event_ids=delete_ids,
+                        delete_series=False,
+                        allow_past=True,
+                    )
+                    deleted_events.extend(delete_result.get("deleted_events", []))
+                    if int(delete_result.get("deleted_count", 0)) <= 0:
+                        apply_errors.append(
+                            {
+                                "candidate_id": candidate.get("id"),
+                                "error": "delete_not_applied",
+                                "not_found": delete_result.get("not_found", []),
+                            }
+                        )
+                    else:
+                        applied_counts["delete"] += int(delete_result.get("deleted_count", 0))
+                    continue
+                apply_errors.append(
+                    {
+                        "candidate_id": candidate.get("id"),
+                        "error": "unsupported_operation",
+                        "operation": op,
+                    }
+                )
+            except ServiceAuthRequiredError as exc:
+                return _build_reauth_required_response(
+                    runtime_context=runtime_context,
+                    query="operation_confirmation",
+                    service=exc.service,
+                    service_display_name=exc.service_display_name,
+                    reauth_endpoint=exc.reauth_endpoint,
+                    message=str(exc),
+                    resume_context={
+                        "message": "operation_confirmation",
+                        "context": {
+                            "operation_confirmation": {
+                                "action": "confirm",
+                                "confirmation_id": confirmation_id,
+                                "selected_event_ids": selected_ids,
+                            }
+                        },
+                    },
+                )
+            except Exception as exc:
+                apply_errors.append(
+                    {
+                        "candidate_id": candidate.get("id"),
+                        "error": "candidate_apply_failed",
+                        "message": str(exc),
+                    }
+                )
+
+        PENDING_CONFIRMATIONS.pop(confirmation_id, None)
+        any_applied = any(count > 0 for count in applied_counts.values())
+        if applied_counts["add"] > 0 and applied_counts["edit"] == 0 and applied_counts["delete"] == 0:
+            final_action = "create"
+        elif applied_counts["edit"] > 0 and applied_counts["add"] == 0 and applied_counts["delete"] == 0:
+            final_action = "edit"
+        elif applied_counts["delete"] > 0 and applied_counts["add"] == 0 and applied_counts["edit"] == 0:
+            final_action = "delete"
+        elif any_applied:
+            final_action = "mixed"
+        else:
+            final_action = "none"
+        surfaced_events: List[Dict[str, Any]] = []
+        surfaced_events.extend(created_events)
+        surfaced_events.extend(updated_events)
+        surfaced_events.extend(deleted_events)
+        return {
+            "result_type": "calendar_events",
+            "action": final_action,
+            "summary": {
+                "calendar_id": runtime_context["default_calendar_id"],
+                "confirmation_id": confirmation_id,
+                "operation": "document_analysis",
+                "upload_id": pending.get("upload_id"),
+                "filename": pending.get("filename"),
+                "selected_count": len(selected_candidates),
+                "applied_counts": applied_counts,
+                "events_created_count": len(created_events),
+                "updated_count": len(updated_events),
+                "deleted_count": len(deleted_events),
+                "errors": apply_errors,
+            },
+            "events": surfaced_events,
+            "meta": {
+                "default_calendar_id": runtime_context["default_calendar_id"],
+                "current_datetime_utc": runtime_context["current_datetime_utc"],
+                "current_datetime_local": runtime_context["current_datetime_local"],
+                "query": "operation_confirmation",
+            },
+            "tool_results": [],
+        }
+
     if operation == "delete":
         if not selected_ids:
             selected_ids = [
@@ -1546,11 +1999,31 @@ def _handle_operation_confirmation_context(
                 for event in pending.get("candidates", [])
                 if isinstance(event, dict) and event.get("id")
             ]
-        delete_result = delete_events(
-            event_ids=selected_ids,
-            delete_series=bool(pending.get("delete_series", False)),
-            allow_past=True,
-        )
+        try:
+            delete_result = delete_events(
+                event_ids=selected_ids,
+                delete_series=bool(pending.get("delete_series", False)),
+                allow_past=True,
+            )
+        except ServiceAuthRequiredError as exc:
+            return _build_reauth_required_response(
+                runtime_context=runtime_context,
+                query="operation_confirmation",
+                service=exc.service,
+                service_display_name=exc.service_display_name,
+                reauth_endpoint=exc.reauth_endpoint,
+                message=str(exc),
+                resume_context={
+                    "message": "operation_confirmation",
+                    "context": {
+                        "operation_confirmation": {
+                            "action": "confirm",
+                            "confirmation_id": confirmation_id,
+                            "selected_event_ids": selected_ids,
+                        }
+                    },
+                },
+            )
         PENDING_CONFIRMATIONS.pop(confirmation_id, None)
         return {
             "result_type": "calendar_events",
@@ -1585,11 +2058,31 @@ def _handle_operation_confirmation_context(
         if not isinstance(update_fields, dict):
             update_fields = {}
         edit_scope = str(pending.get("edit_scope", "selected"))
-        update_result = update_events_by_id(
-            event_ids=selected_ids,
-            update_fields=update_fields,
-            update_series=(edit_scope == "series"),
-        )
+        try:
+            update_result = update_events_by_id(
+                event_ids=selected_ids,
+                update_fields=update_fields,
+                update_series=(edit_scope == "series"),
+            )
+        except ServiceAuthRequiredError as exc:
+            return _build_reauth_required_response(
+                runtime_context=runtime_context,
+                query="operation_confirmation",
+                service=exc.service,
+                service_display_name=exc.service_display_name,
+                reauth_endpoint=exc.reauth_endpoint,
+                message=str(exc),
+                resume_context={
+                    "message": "operation_confirmation",
+                    "context": {
+                        "operation_confirmation": {
+                            "action": "confirm",
+                            "confirmation_id": confirmation_id,
+                            "selected_event_ids": selected_ids,
+                        }
+                    },
+                },
+            )
         PENDING_CONFIRMATIONS.pop(confirmation_id, None)
         return {
             "result_type": "calendar_events",
@@ -1650,6 +2143,25 @@ def _handle_operation_confirmation_context(
         try:
             created = create_or_update_event(event_payload)
             created_events.append(normalize_event(created))
+        except ServiceAuthRequiredError as exc:
+            return _build_reauth_required_response(
+                runtime_context=runtime_context,
+                query="operation_confirmation",
+                service=exc.service,
+                service_display_name=exc.service_display_name,
+                reauth_endpoint=exc.reauth_endpoint,
+                message=str(exc),
+                resume_context={
+                    "message": "operation_confirmation",
+                    "context": {
+                        "operation_confirmation": {
+                            "action": "confirm",
+                            "confirmation_id": confirmation_id,
+                            "selected_event_ids": selected_ids,
+                        }
+                    },
+                },
+            )
         except Exception as exc:
             create_errors.append(
                 {
@@ -1730,6 +2242,8 @@ async def run_agent_chat(
     runtime_context["add_window_exceeds_one_year"] = add_window_exceeds_one_year
     merged_context = {**runtime_context, **context}
     named_query = _extract_named_event_query(message)
+    general_query = _extract_general_search_term(message, resolved_time_window=resolved_time_window)
+    delete_query = _extract_delete_query(message, resolved_time_window=resolved_time_window)
     rename_request = _extract_bulk_rename_request(message)
 
     def _stage_direct_rename_edit(
@@ -1758,7 +2272,33 @@ async def run_agent_chat(
             resolved_time_window=resolved_time_window,
             default_event_options=default_event_options,
         )
-        edit_result = edit_calendar_events.invoke(cleaned_edit_args)
+        try:
+            edit_result = edit_calendar_events.invoke(cleaned_edit_args)
+        except ServiceAuthRequiredError as exc:
+            return _build_reauth_required_response(
+                runtime_context=runtime_context,
+                query=message,
+                service=exc.service,
+                service_display_name=exc.service_display_name,
+                reauth_endpoint=exc.reauth_endpoint,
+                message=str(exc),
+                resume_context={"message": message, "context": context},
+                tool_results=[
+                    {
+                        "name": "edit_calendar_events",
+                        "args": cleaned_edit_args,
+                        "result": {
+                            "error": "service_auth_required",
+                            "tool_name": "edit_calendar_events",
+                            "service": exc.service,
+                            "service_display_name": exc.service_display_name,
+                            "reauth_endpoint": exc.reauth_endpoint,
+                            "message": str(exc),
+                            "reason": exc.reason,
+                        },
+                    }
+                ],
+            )
         edit_candidates = (
             edit_result.get("candidates", [])
             if isinstance(edit_result, dict) and isinstance(edit_result.get("candidates"), list)
@@ -1800,6 +2340,7 @@ async def run_agent_chat(
                     "current_datetime_utc": runtime_context["current_datetime_utc"],
                     "current_datetime_local": runtime_context["current_datetime_local"],
                     "query": message,
+                    "resolved_time_window": resolved_time_window,
                 },
                 "tool_results": [
                     {
@@ -1832,6 +2373,7 @@ async def run_agent_chat(
                 "current_datetime_utc": runtime_context["current_datetime_utc"],
                 "current_datetime_local": runtime_context["current_datetime_local"],
                 "query": message,
+                "resolved_time_window": resolved_time_window,
             },
             "tool_results": [
                 {
@@ -1866,15 +2408,41 @@ async def run_agent_chat(
             resolved_time_window=resolved_time_window,
             default_event_options=default_event_options,
         )
-        fast_events = search_events(
-            query=cleaned_search_args.get("query"),
-            max_results=int(cleaned_search_args.get("max_results", 200)),
-            start_time=cleaned_search_args.get("start_time"),
-            end_time=cleaned_search_args.get("end_time"),
-            weekday=cleaned_search_args.get("weekday"),
-            count=cleaned_search_args.get("count"),
-            allow_past=bool(cleaned_search_args.get("allow_past", False)),
-        )
+        try:
+            fast_events = search_events(
+                query=cleaned_search_args.get("query"),
+                max_results=int(cleaned_search_args.get("max_results", 200)),
+                start_time=cleaned_search_args.get("start_time"),
+                end_time=cleaned_search_args.get("end_time"),
+                weekday=cleaned_search_args.get("weekday"),
+                count=cleaned_search_args.get("count"),
+                allow_past=bool(cleaned_search_args.get("allow_past", False)),
+            )
+        except ServiceAuthRequiredError as exc:
+            return _build_reauth_required_response(
+                runtime_context=runtime_context,
+                query=message,
+                service=exc.service,
+                service_display_name=exc.service_display_name,
+                reauth_endpoint=exc.reauth_endpoint,
+                message=str(exc),
+                resume_context={"message": message, "context": context},
+                tool_results=[
+                    {
+                        "name": "search_calendar_events",
+                        "args": cleaned_search_args,
+                        "result": {
+                            "error": "service_auth_required",
+                            "tool_name": "search_calendar_events",
+                            "service": exc.service,
+                            "service_display_name": exc.service_display_name,
+                            "reauth_endpoint": exc.reauth_endpoint,
+                            "message": str(exc),
+                            "reason": exc.reason,
+                        },
+                    }
+                ],
+            )
         fast_result = {
             "events": normalize_events(fast_events),
             "effective_start_time": cleaned_search_args.get("start_time"),
@@ -1895,12 +2463,227 @@ async def run_agent_chat(
                 "current_datetime_utc": runtime_context["current_datetime_utc"],
                 "current_datetime_local": runtime_context["current_datetime_local"],
                 "query": message,
+                "resolved_time_window": resolved_time_window,
             },
             "tool_results": [
                 {
                     "name": "search_calendar_events",
                     "args": cleaned_search_args,
                     "result": fast_result,
+                }
+            ],
+        }
+
+    # Fast path for generic retrieval prompts that only need calendar data and
+    # a resolved time window (no LLM reasoning required).
+    if (
+        primary_intent == "retrieve"
+        and resolved_time_window is not None
+        and web_search_mode == "private"
+        and not named_query
+        and not re.search(r"\b(add|create|delete|remove|edit|update)\b", message.lower())
+    ):
+        raw_search_args: Dict[str, Any] = {
+            "query": general_query,
+            "max_results": 200,
+            "allow_past": bool(runtime_context.get("explicit_past_requested", False)),
+            "start_time": resolved_time_window.get("start_iso"),
+            "end_time": resolved_time_window.get("end_iso"),
+        }
+        cleaned_search_args = _clean_tool_args(
+            "search_calendar_events",
+            raw_search_args,
+            now_utc=now_utc,
+            explicit_past_requested=bool(runtime_context.get("explicit_past_requested", False)),
+            resolved_time_window=resolved_time_window,
+            default_event_options=default_event_options,
+        )
+        try:
+            fast_events = search_events(
+                query=cleaned_search_args.get("query"),
+                max_results=int(cleaned_search_args.get("max_results", 200)),
+                start_time=cleaned_search_args.get("start_time"),
+                end_time=cleaned_search_args.get("end_time"),
+                weekday=cleaned_search_args.get("weekday"),
+                count=cleaned_search_args.get("count"),
+                allow_past=bool(cleaned_search_args.get("allow_past", False)),
+            )
+        except ServiceAuthRequiredError as exc:
+            return _build_reauth_required_response(
+                runtime_context=runtime_context,
+                query=message,
+                service=exc.service,
+                service_display_name=exc.service_display_name,
+                reauth_endpoint=exc.reauth_endpoint,
+                message=str(exc),
+                resume_context={"message": message, "context": context},
+                tool_results=[
+                    {
+                        "name": "search_calendar_events",
+                        "args": cleaned_search_args,
+                        "result": {
+                            "error": "service_auth_required",
+                            "tool_name": "search_calendar_events",
+                            "service": exc.service,
+                            "service_display_name": exc.service_display_name,
+                            "reauth_endpoint": exc.reauth_endpoint,
+                            "message": str(exc),
+                            "reason": exc.reason,
+                        },
+                    }
+                ],
+            )
+        fast_result = {
+            "events": normalize_events(fast_events),
+            "effective_start_time": cleaned_search_args.get("start_time"),
+            "effective_end_time": cleaned_search_args.get("end_time"),
+            "allow_past": bool(cleaned_search_args.get("allow_past", False)),
+        }
+        return {
+            "result_type": "calendar_events",
+            "action": "retrieve",
+            "summary": {
+                "calendar_id": runtime_context["default_calendar_id"],
+                "events_found_count": len(fast_result.get("events", [])),
+                "query": cleaned_search_args.get("query"),
+            },
+            "events": fast_result.get("events", []),
+            "meta": {
+                "default_calendar_id": runtime_context["default_calendar_id"],
+                "current_datetime_utc": runtime_context["current_datetime_utc"],
+                "current_datetime_local": runtime_context["current_datetime_local"],
+                "query": message,
+                "resolved_time_window": resolved_time_window,
+            },
+            "tool_results": [
+                {
+                    "name": "search_calendar_events",
+                    "args": cleaned_search_args,
+                    "result": fast_result,
+                }
+            ],
+        }
+
+    # Fast path for delete-by-query prompts with an extractable subject.
+    if primary_intent == "delete" and delete_query and web_search_mode == "private":
+        raw_delete_args: Dict[str, Any] = {
+            "query": delete_query,
+            "max_results": 200,
+            "allow_past": bool(re.search(r"\ball\b", message.lower()))
+            or bool(runtime_context.get("explicit_past_requested", False)),
+        }
+        if resolved_time_window:
+            raw_delete_args["start_time"] = resolved_time_window.get("start_iso")
+            raw_delete_args["end_time"] = resolved_time_window.get("end_iso")
+
+        cleaned_delete_args = _clean_tool_args(
+            "delete_calendar_events",
+            raw_delete_args,
+            now_utc=now_utc,
+            explicit_past_requested=bool(runtime_context.get("explicit_past_requested", False)),
+            resolved_time_window=resolved_time_window,
+            default_event_options=default_event_options,
+        )
+        try:
+            delete_result = delete_calendar_events.invoke(cleaned_delete_args)
+        except ServiceAuthRequiredError as exc:
+            return _build_reauth_required_response(
+                runtime_context=runtime_context,
+                query=message,
+                service=exc.service,
+                service_display_name=exc.service_display_name,
+                reauth_endpoint=exc.reauth_endpoint,
+                message=str(exc),
+                resume_context={"message": message, "context": context},
+                tool_results=[
+                    {
+                        "name": "delete_calendar_events",
+                        "args": cleaned_delete_args,
+                        "result": {
+                            "error": "service_auth_required",
+                            "tool_name": "delete_calendar_events",
+                            "service": exc.service,
+                            "service_display_name": exc.service_display_name,
+                            "reauth_endpoint": exc.reauth_endpoint,
+                            "message": str(exc),
+                            "reason": exc.reason,
+                        },
+                    }
+                ],
+            )
+
+        delete_candidates = (
+            delete_result.get("candidates", [])
+            if isinstance(delete_result, dict) and isinstance(delete_result.get("candidates"), list)
+            else []
+        )
+        if delete_candidates:
+            confirmation_id = str(uuid4())
+            PENDING_CONFIRMATIONS[confirmation_id] = {
+                "operation": "delete",
+                "candidates": delete_candidates,
+                "delete_series": bool((delete_result or {}).get("delete_series", False)),
+                "created_at_utc": runtime_context["current_datetime_utc"],
+            }
+            return {
+                "result_type": "calendar_events",
+                "action": "delete_pending_confirmation",
+                "summary": {
+                    "calendar_id": runtime_context["default_calendar_id"],
+                    "operation": "delete",
+                    "confirmation_id": confirmation_id,
+                    "candidate_count": len(delete_candidates),
+                    "candidates": delete_candidates,
+                    "delete_series": bool((delete_result or {}).get("delete_series", False)),
+                    "not_found_count": int((delete_result or {}).get("not_found_count", 0)),
+                    "not_found": (delete_result or {}).get("not_found", []),
+                },
+                "events": delete_candidates,
+                "meta": {
+                    "default_calendar_id": runtime_context["default_calendar_id"],
+                    "current_datetime_utc": runtime_context["current_datetime_utc"],
+                    "current_datetime_local": runtime_context["current_datetime_local"],
+                    "query": message,
+                    "resolved_time_window": resolved_time_window,
+                },
+                "tool_results": [
+                    {
+                        "name": "delete_calendar_events",
+                        "args": cleaned_delete_args,
+                        "result": delete_result,
+                    }
+                ],
+            }
+
+        return {
+            "result_type": "calendar_events",
+            "action": "none",
+            "summary": {
+                "calendar_id": runtime_context["default_calendar_id"],
+                "events_count": 0,
+                "events": [],
+                "error": "no_deletable_events_found",
+                "message": "No matching events were found to delete for this request.",
+                "not_found_count": int((delete_result or {}).get("not_found_count", 0))
+                if isinstance(delete_result, dict)
+                else 0,
+                "not_found": (delete_result or {}).get("not_found", [])
+                if isinstance(delete_result, dict)
+                else [],
+            },
+            "events": [],
+            "meta": {
+                "default_calendar_id": runtime_context["default_calendar_id"],
+                "current_datetime_utc": runtime_context["current_datetime_utc"],
+                "current_datetime_local": runtime_context["current_datetime_local"],
+                "query": message,
+                "resolved_time_window": resolved_time_window,
+            },
+            "tool_results": [
+                {
+                    "name": "delete_calendar_events",
+                    "args": cleaned_delete_args,
+                    "result": delete_result,
                 }
             ],
         }
@@ -1985,7 +2768,7 @@ Calendar accuracy rules:
 Response contract:
 14) Respond in strict JSON only.
 15) action must match operation outcome:
-   - add_pending_confirmation, create, delete_pending_confirmation, delete, edit_pending_confirmation, edit, retrieve, none.
+   - add_pending_confirmation, create, delete_pending_confirmation, delete, edit_pending_confirmation, edit, retrieve, reauthorization_required, none.
 16) Include structured errors instead of broad fallbacks.
 17) If confidence is low or ambiguous, ask one concise clarification question (unless confirmation context is active).
 
@@ -2034,15 +2817,41 @@ Performance rules:
                 resolved_time_window=resolved_time_window,
                 default_event_options=default_event_options,
             )
-            fallback_events = search_events(
-                query=cleaned_fallback_args.get("query"),
-                max_results=int(cleaned_fallback_args.get("max_results", 200)),
-                start_time=cleaned_fallback_args.get("start_time"),
-                end_time=cleaned_fallback_args.get("end_time"),
-                weekday=cleaned_fallback_args.get("weekday"),
-                count=cleaned_fallback_args.get("count"),
-                allow_past=bool(cleaned_fallback_args.get("allow_past", False)),
-            )
+            try:
+                fallback_events = search_events(
+                    query=cleaned_fallback_args.get("query"),
+                    max_results=int(cleaned_fallback_args.get("max_results", 200)),
+                    start_time=cleaned_fallback_args.get("start_time"),
+                    end_time=cleaned_fallback_args.get("end_time"),
+                    weekday=cleaned_fallback_args.get("weekday"),
+                    count=cleaned_fallback_args.get("count"),
+                    allow_past=bool(cleaned_fallback_args.get("allow_past", False)),
+                )
+            except ServiceAuthRequiredError as auth_exc:
+                return _build_reauth_required_response(
+                    runtime_context=runtime_context,
+                    query=message,
+                    service=auth_exc.service,
+                    service_display_name=auth_exc.service_display_name,
+                    reauth_endpoint=auth_exc.reauth_endpoint,
+                    message=str(auth_exc),
+                    resume_context={"message": message, "context": context},
+                    tool_results=[
+                        {
+                            "name": "search_calendar_events",
+                            "args": cleaned_fallback_args,
+                            "result": {
+                                "error": "service_auth_required",
+                                "tool_name": "search_calendar_events",
+                                "service": auth_exc.service,
+                                "service_display_name": auth_exc.service_display_name,
+                                "reauth_endpoint": auth_exc.reauth_endpoint,
+                                "message": str(auth_exc),
+                                "reason": auth_exc.reason,
+                            },
+                        }
+                    ],
+                )
             fallback_result = {
                 "events": normalize_events(fallback_events),
                 "effective_start_time": cleaned_fallback_args.get("start_time"),
@@ -2064,6 +2873,7 @@ Performance rules:
                     "current_datetime_utc": runtime_context["current_datetime_utc"],
                     "current_datetime_local": runtime_context["current_datetime_local"],
                     "query": message,
+                    "resolved_time_window": resolved_time_window,
                 },
                 "tool_results": [
                     {
@@ -2079,6 +2889,16 @@ Performance rules:
         target_tool = tool_map[tname]
         try:
             return target_tool.invoke(targs)
+        except ServiceAuthRequiredError as exc:
+            return {
+                "error": "service_auth_required",
+                "tool_name": tname,
+                "service": exc.service,
+                "service_display_name": exc.service_display_name,
+                "reauth_endpoint": exc.reauth_endpoint,
+                "message": str(exc),
+                "reason": exc.reason,
+            }
         except Exception as exc:
             if tname == "search_web_for_events":
                 return {
@@ -2318,6 +3138,14 @@ Performance rules:
         and isinstance(tr.get("result"), dict)
         and tr["result"].get("error")
     ]
+    calendar_tool_auth_errors = [
+        tr.get("result")
+        for tr in tool_results
+        if tr.get("name") in {"search_calendar_events", "get_upcoming_events", "delete_calendar_events", "edit_calendar_events"}
+        and isinstance(tr.get("result"), dict)
+        and str((tr.get("result") or {}).get("error")) == "service_auth_required"
+        and str((tr.get("result") or {}).get("service")) == GOOGLE_CALENDAR_SERVICE_ID
+    ]
 
     # Recovery path: if add-intent found external events but the model staged
     # none (e.g., batch_create_events called with an empty list), auto-stage
@@ -2370,6 +3198,25 @@ Performance rules:
     add_error_without_candidates = bool(add_window_errors and not staged_add_candidates)
 
     action = _derive_action(tool_results)
+    if calendar_tool_auth_errors:
+        first_auth_error = (
+            calendar_tool_auth_errors[0]
+            if isinstance(calendar_tool_auth_errors[0], dict)
+            else {}
+        )
+        return _build_reauth_required_response(
+            runtime_context=runtime_context,
+            query=message,
+            service=str(first_auth_error.get("service") or GOOGLE_CALENDAR_SERVICE_ID),
+            service_display_name=str(first_auth_error.get("service_display_name") or GOOGLE_CALENDAR_SERVICE_NAME),
+            reauth_endpoint=str(first_auth_error.get("reauth_endpoint") or GOOGLE_CALENDAR_REAUTH_ENDPOINT),
+            message=str(first_auth_error.get("message") or "Service authorization is required."),
+            tool_results=tool_results,
+            resume_context={
+                "message": message,
+                "context": context,
+            },
+        )
     if requires_add_confirmation:
         action = "add_pending_confirmation"
     if requires_delete_confirmation:

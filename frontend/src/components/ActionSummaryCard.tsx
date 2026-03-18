@@ -6,6 +6,16 @@ type ActionSummaryCardProps = {
 
 export function ActionSummaryCard({ response }: ActionSummaryCardProps) {
   const summary = response.summary
+  const noMatchErrorCodes = new Set([
+    'no_editable_events_found',
+    'no_deletable_events_found',
+    'no_addable_events_found',
+  ])
+  const isNoMatchesState =
+    response.action === 'none' &&
+    typeof summary.error === 'string' &&
+    noMatchErrorCodes.has(summary.error)
+  const queryText = typeof response.meta.query === 'string' ? response.meta.query : null
 
   return (
     <section className="panel">
@@ -40,6 +50,12 @@ export function ActionSummaryCard({ response }: ActionSummaryCardProps) {
       )}
       {typeof summary.message === 'string' && (
         <p className="summary-note">{summary.message}</p>
+      )}
+      {isNoMatchesState && (
+        <p className="summary-note">
+          No matching events were found for this request.
+          {queryText ? ` Query: "${queryText}"` : ''}
+        </p>
       )}
     </section>
   )

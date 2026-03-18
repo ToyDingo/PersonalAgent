@@ -1,0 +1,10 @@
+{
+  "upload_id": "upload-0001",
+  "message": "Add all events in this document to my calendar",
+  "timezone": "America/New_York",
+  "context": {
+    "contract_version": "v1",
+    "client_platform": "desktop",
+    "upload_source": "desktop"
+  }
+}

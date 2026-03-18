@@ -20,6 +20,24 @@ export function buildAgentRequest(
   }
 }
 
+export function buildUploadAnalyzeRequest(
+  uploadId: string,
+  message: string,
+  timezone?: string,
+  context?: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    upload_id: uploadId,
+    message,
+    timezone: timezone ?? null,
+    context: {
+      ...(context ?? {}),
+      contract_version: CONTRACT_VERSION,
+      client_platform: 'desktop',
+    },
+  }
+}
+
 export function parseAgentResponse(value: unknown): AgentResponse {
   if (!isRecord(value)) {
     throw new Error('Invalid response: expected object payload.')
@@ -40,5 +58,18 @@ export function parseAgentResponse(value: unknown): AgentResponse {
     throw new Error('Invalid response: tool_results must be an array.')
   }
   return value as AgentResponse
+}
+
+export function parseUploadResponse(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) {
+    throw new Error('Invalid upload response: expected object payload.')
+  }
+  if (typeof value.upload_id !== 'string' || value.upload_id.trim().length === 0) {
+    throw new Error('Invalid upload response: missing upload_id.')
+  }
+  if (typeof value.status !== 'string') {
+    throw new Error('Invalid upload response: missing status.')
+  }
+  return value
 }
 

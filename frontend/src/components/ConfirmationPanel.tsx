@@ -1,7 +1,7 @@
 import type { CalendarEvent } from '../types'
 
 type ConfirmationPanelProps = {
-  operationLabel: 'Add' | 'Delete' | 'Edit'
+  operationLabel: 'Add' | 'Delete' | 'Edit' | 'Document'
   candidates: CalendarEvent[]
   selectedCandidateIds: string[]
   loading: boolean

@@ -1,0 +1,195 @@
+{
+  "suite_version": "v1.2",
+  "cases": [
+    {
+      "id": "retrieve-named-this-year",
+      "required": true,
+      "prompt": "Show all events named vet for this year",
+      "context": {
+        "event_visibility": "private"
+      },
+      "expectations": {
+        "action_in": ["retrieve"],
+        "required_tools_any": ["search_calendar_events"],
+        "forbidden_tools_any": ["search_web_for_events"],
+        "resolved_source_contains": "this year",
+        "max_duration_ms": 30000
+      }
+    },
+    {
+      "id": "retrieve-this-morning",
+      "required": true,
+      "prompt": "What did I have scheduled this morning?",
+      "context": {
+        "event_visibility": "private"
+      },
+      "expectations": {
+        "action_in": ["retrieve", "none"],
+        "required_tools_any": ["search_calendar_events"],
+        "forbidden_tools_any": ["search_web_for_events"],
+        "resolved_source_contains": "this morning",
+        "max_duration_ms": 3000
+      }
+    },
+    {
+      "id": "retrieve-this-week-future-default",
+      "required": true,
+      "prompt": "Show me what is on my calendar this week.",
+      "context": {
+        "event_visibility": "private"
+      },
+      "expectations": {
+        "action_in": ["retrieve", "none"],
+        "required_tools_any": ["search_calendar_events"],
+        "forbidden_tools_any": ["search_web_for_events"],
+        "resolved_source_contains": "this week",
+        "max_duration_ms": 3000
+      }
+    },
+    {
+      "id": "retrieve-this-week-so-far",
+      "required": true,
+      "prompt": "What did I have this week so far?",
+      "context": {
+        "event_visibility": "private"
+      },
+      "expectations": {
+        "action_in": ["retrieve", "none"],
+        "required_tools_any": ["search_calendar_events"],
+        "forbidden_tools_any": ["search_web_for_events"],
+        "resolved_source_contains": "this week (so far)",
+        "max_duration_ms": 30000
+      }
+    },
+    {
+      "id": "retrieve-generic-this-month",
+      "required": true,
+      "prompt": "What do I have on my calendar this month?",
+      "context": {
+        "event_visibility": "private"
+      },
+      "expectations": {
+        "action_in": ["retrieve", "none"],
+        "required_tools_any": ["search_calendar_events"],
+        "forbidden_tools_any": ["search_web_for_events"],
+        "resolved_source_contains": "this month",
+        "max_duration_ms": 3000
+      }
+    },
+    {
+      "id": "retrieve-last-month-explicit-past",
+      "required": true,
+      "prompt": "What events did I have last month?",
+      "context": {
+        "event_visibility": "private"
+      },
+      "expectations": {
+        "action_in": ["retrieve", "none"],
+        "required_tools_any": ["search_calendar_events"],
+        "forbidden_tools_any": ["search_web_for_events"],
+        "resolved_source_contains": "last month",
+        "max_duration_ms": 3000
+      }
+    },
+    {
+      "id": "edit-bulk-rename-pending",
+      "required": true,
+      "prompt": "change the name of all events this year name vet robotic to vex robotics",
+      "context": {
+        "event_visibility": "private"
+      },
+      "expectations": {
+        "action_in": ["edit_pending_confirmation", "none"],
+        "required_tools_any": ["edit_calendar_events"],
+        "forbidden_tools_any": ["search_web_for_events"],
+        "resolved_source_contains": "this year",
+        "max_duration_ms": 45000
+      },
+      "followup": {
+        "mode": "cancel",
+        "expect_action_in": ["edit_cancelled"]
+      }
+    },
+    {
+      "id": "delete-query-pending",
+      "required": true,
+      "prompt": "delete my vet robotics events this year",
+      "context": {
+        "event_visibility": "private"
+      },
+      "expectations": {
+        "action_in": ["delete_pending_confirmation", "none"],
+        "required_tools_any": ["delete_calendar_events"],
+        "forbidden_tools_any": ["search_web_for_events"],
+        "resolved_source_contains": "this year",
+        "max_duration_ms": 5000
+      },
+      "followup": {
+        "mode": "cancel",
+        "expect_action_in": ["delete_cancelled"]
+      }
+    },
+    {
+      "id": "sports-disambiguation-atlanta-united",
+      "required": false,
+      "prompt": "Show Atlanta United schedule this season",
+      "context": {
+        "event_visibility": "public"
+      },
+      "expectations": {
+        "action_in": ["retrieve", "add_pending_confirmation", "none"],
+        "required_tools_any": ["search_official_sources"],
+        "max_duration_ms": 60000
+      }
+    },
+    {
+      "id": "add-with-reminder",
+      "required": true,
+      "prompt": "Add a dentist appointment for next Tuesday at 2pm with a 1 day reminder",
+      "context": {
+        "event_visibility": "private"
+      },
+      "expectations": {
+        "action_in": ["add_pending_confirmation", "create"],
+        "required_tools_any": ["create_event", "batch_create_events"],
+        "forbidden_tools_any": ["search_web_for_events", "search_official_sources"],
+        "max_duration_ms": 45000
+      },
+      "followup": {
+        "mode": "cancel",
+        "expect_action_in": ["add_cancelled"]
+      }
+    },
+    {
+      "id": "edit-targeted-location-update",
+      "required": false,
+      "prompt": "Update the location of the next vex robotics event to Jefferson High School",
+      "context": {
+        "event_visibility": "private"
+      },
+      "expectations": {
+        "action_in": ["edit_pending_confirmation", "none"],
+        "required_tools_any": ["edit_calendar_events"],
+        "forbidden_tools_any": ["search_web_for_events", "search_official_sources"],
+        "max_duration_ms": 45000
+      }
+    },
+    {
+      "id": "add-f1-races-official-source",
+      "required": false,
+      "prompt": "Add all 2026 F1 races to my calendar",
+      "context": {
+        "event_visibility": "public"
+      },
+      "expectations": {
+        "action_in": ["add_pending_confirmation"],
+        "required_tools_any": ["search_official_sources", "batch_create_events"],
+        "max_duration_ms": 90000
+      },
+      "followup": {
+        "mode": "cancel",
+        "expect_action_in": ["add_cancelled"]
+      }
+    }
+  ]
+}

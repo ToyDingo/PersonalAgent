@@ -11,6 +11,7 @@ from googleapiclient.discovery import build
 
 from app.google.auth import get_calendar_credentials
 
+
 WINDOWS_TO_IANA_TIMEZONE: Dict[str, str] = {
     "eastern standard time": "America/New_York",
     "eastern daylight time": "America/New_York",
@@ -747,8 +748,14 @@ def update_events_by_id(
 def _normalize_event_timezones(event_data: Dict[str, Any]) -> Dict[str, Any]:
     for key in ("start", "end"):
         block = event_data.get(key)
-        if isinstance(block, dict) and "timeZone" in block:
-            block["timeZone"] = _normalize_timezone(block["timeZone"])
+        if not isinstance(block, dict):
+            continue
+        # Accept both Google-native `timeZone` and accidental lowercase `timezone`.
+        if "timeZone" not in block and "timezone" in block:
+            block["timeZone"] = block.get("timezone")
+            block.pop("timezone", None)
+        if "timeZone" in block:
+            block["timeZone"] = _normalize_timezone(str(block["timeZone"]))
     return event_data
 
 

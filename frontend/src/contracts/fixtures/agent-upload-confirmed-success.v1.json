@@ -1,0 +1,43 @@
+{
+  "result_type": "calendar_events",
+  "action": "mixed",
+  "summary": {
+    "calendar_id": "primary",
+    "confirmation_id": "confirm-0003",
+    "operation": "document_analysis",
+    "upload_id": "upload-0003",
+    "filename": "robotics.txt",
+    "selected_count": 2,
+    "applied_counts": {
+      "add": 1,
+      "edit": 1,
+      "delete": 0
+    },
+    "events_created_count": 1,
+    "updated_count": 1,
+    "deleted_count": 0,
+    "errors": []
+  },
+  "events": [
+    {
+      "id": "event-1",
+      "summary": "Robotics kickoff",
+      "description": "Created from uploaded document",
+      "location": null,
+      "status": "confirmed",
+      "html_link": null,
+      "start_iso": "2026-04-04T11:00:00-04:00",
+      "end_iso": "2026-04-04T12:00:00-04:00",
+      "timezone": "America/New_York",
+      "is_all_day": false,
+      "source_calendar": "primary"
+    }
+  ],
+  "meta": {
+    "default_calendar_id": "primary",
+    "current_datetime_utc": "2026-03-18T18:00:00+00:00",
+    "current_datetime_local": "2026-03-18T14:00:00-04:00",
+    "query": "operation_confirmation"
+  },
+  "tool_results": []
+}

@@ -27,9 +27,12 @@ export type AgentAction =
   | 'edit'
   | 'edit_pending_confirmation'
   | 'edit_cancelled'
+  | 'document_pending_confirmation'
+  | 'document_cancelled'
   | 'add_pending_confirmation'
   | 'add_cancelled'
   | 'retrieve'
+  | 'reauthorization_required'
   | 'delete'
   | 'delete_pending_confirmation'
   | 'delete_cancelled'
@@ -69,5 +72,30 @@ export type AgentRequestContext = Record<string, unknown>
 export type AgentRequestPayload = {
   message: string
   context: AgentRequestContext
+}
+
+export type UploadStatus = 'uploaded' | 'analyzing' | 'analyzed' | 'error'
+
+export type UploadCreateResponse = {
+  upload_id: string
+  status: UploadStatus
+  filename: string
+  content_type: string
+  extension: string
+  size_bytes: number
+  created_at_utc: string
+}
+
+export type UploadRecord = {
+  upload_id: string
+  status: UploadStatus
+  filename: string
+  content_type: string
+  extension: string
+  size_bytes: number
+  error_code?: string
+  error_message?: string
+  created_at_utc: string
+  updated_at_utc: string
 }
 

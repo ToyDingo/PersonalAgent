@@ -1,0 +1,17 @@
+{
+  "result_type": "calendar_events",
+  "action": "none",
+  "summary": {
+    "calendar_id": "primary",
+    "error_code": "service_auth_declined",
+    "message": "User declined service re-authorization."
+  },
+  "events": [],
+  "meta": {
+    "default_calendar_id": "primary",
+    "current_datetime_utc": "2026-03-18T00:00:00+00:00",
+    "current_datetime_local": "2026-03-17T20:00:00-04:00",
+    "query": "what events do I have today"
+  },
+  "tool_results": []
+}

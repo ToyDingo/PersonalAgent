@@ -17,6 +17,8 @@ export function StatusTimeline({
 }: StatusTimelineProps) {
   const status = loading
     ? 'Processing'
+    : latestAction === 'reauthorization_required'
+      ? 'Authorization required'
     : isPendingConfirmation
       ? 'Awaiting confirmation'
       : hasResult

@@ -9,3 +9,8 @@ pydantic-settings==2.6.1
 google-auth==2.36.0
 google-auth-oauthlib==1.2.1
 google-api-python-client==2.154.0
+python-multipart
+pypdf
+python-docx
+openpyxl
+icalendar
