@@ -46,6 +46,7 @@ This file is git-ignored and must be placed manually on each machine.
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
 ### 4. Frontend dependencies
@@ -143,18 +144,38 @@ frontend\src-tauri\target\release\bundle\
 
 ---
 
-## QA Checks
+## Testing and QA
 
-Run all QA checks before building a release:
+### Backend tests (`pytest`)
+
+```powershell
+# from project root
+.\.venv\Scripts\Activate.ps1
+pytest -m "not integration"
+```
+
+### Frontend tests (Vitest + RTL)
+
+```powershell
+cd frontend
+npm run test
+```
+
+### Release gate checks
+
+Run all quality gates before building a release:
 
 ```powershell
 cd frontend
 npm run qa:desktop       # lint + contract fixture validation + TypeScript build
 ```
 
-Run the prompt regression suite (requires the backend to be running):
+### Prompt regression suite (live model)
+
+Requires the backend to be running:
 
 ```powershell
+cd frontend
 npm run prompt:validate
 ```
 
@@ -206,8 +227,13 @@ All endpoints return JSON. Calendar endpoints return a structured `401 Unauthori
 | `frontend/src/api.ts` | Typed fetch wrappers for all backend API calls |
 | `frontend/src/types.ts` | Shared TypeScript types (`AgentAction`, `CalendarEvent`, etc.) |
 | `frontend/src/contracts/agentContract.ts` | Request builder and runtime response validator |
+| `tests/` | Python test suite (`api`, `unit`, and contract parity checks) |
+| `requirements-dev.txt` | Python test dependencies (`pytest`, `respx`, coverage tooling) |
+| `app/contracts/models.py` | Pydantic contract models mirrored against frontend fixtures |
 | `frontend/src/contracts/fixtures/` | JSON contract fixtures for CI validation |
 | `frontend/scripts/run-prompt-validation.mjs` | Prompt regression test runner |
+| `.github/workflows/ci.yml` | PR/push CI for backend tests, frontend tests, and desktop QA gate |
+| `.github/workflows/nightly-prompt-validation.yml` | Nightly/manual live prompt validation workflow with artifact upload |
 | `data/google_client_secret.json` | Google OAuth credentials (git-ignored, place manually) |
 | `data/google_token.json` | Stored OAuth tokens (git-ignored, auto-generated) |
 | `.env` | `OPENAI_API_KEY` (git-ignored) |

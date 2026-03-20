@@ -15,6 +15,7 @@ This document is the authoritative reference for how PersonalAgent is structured
 | External data sources | ESPN (unofficial), MLB Stats API, Jolpica-F1 | `app/data_sources/sports.py`, `app/data_sources/router.py` |
 | Frontend | React + TypeScript + Vite | `frontend/src/` |
 | Desktop shell | Tauri (Rust-based system webview) | `frontend/src-tauri/` |
+| Automated testing | Pytest + Vitest + React Testing Library + GitHub Actions | `tests/`, `frontend/src/**/*.test.tsx`, `.github/workflows/` |
 | Configuration | Pydantic Settings + `.env` | `app/config.py` |
 
 **Tauri app details:**
@@ -37,6 +38,7 @@ This document is the authoritative reference for how PersonalAgent is structured
 # from project root
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+pip install -r requirements-dev.txt
 uvicorn app.main:app --reload
 ```
 
@@ -433,13 +435,53 @@ App
 
 | Script | Command | Purpose |
 |---|---|---|
+| `npm run test` | `vitest run` | Runs frontend unit/component tests |
+| `npm run test:watch` | `vitest` | Runs frontend tests in watch mode for local development |
 | `npm run contract:check` | `node ./scripts/validate-contract-fixtures.mjs` | Validates all JSON fixtures against the contract schema |
 | `npm run prompt:validate` | `node ./scripts/run-prompt-validation.mjs` | Runs prompt regression suite against a live backend |
 | `npm run qa:desktop` | `lint + contract:check + build` | Full pre-release gate |
 
 ---
 
-## 11. Contract Fixtures (`frontend/src/contracts/fixtures/`)
+## 11. Test Suite and CI
+
+### Backend tests (Pytest)
+
+- Config: `pytest.ini` (`asyncio_mode = auto`, `testpaths = tests`)
+- Coverage focus:
+  - `tests/api/` — endpoint-level behavior using FastAPI `TestClient`
+  - `tests/unit/` — upload validation/extractors, data-source router behavior, sports connector error/fallback paths, and agent helper logic
+  - `tests/contracts/` — Python contract validation of checked-in frontend fixture payloads
+- Run command:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+pytest -m "not integration"
+```
+
+### Frontend tests (Vitest + React Testing Library)
+
+- Config: `frontend/vitest.config.ts` + `frontend/src/test/setupTests.ts`
+- Current focus: contract parser/builders and key UI state components
+- Run command:
+
+```powershell
+cd frontend
+npm run test
+```
+
+### CI Workflows
+
+- `/.github/workflows/ci.yml`
+  - Trigger: push + pull request
+  - Runs backend tests (`pytest -m "not integration"`), frontend tests (`npm run test`), and release gates (`npm run qa:desktop`)
+- `/.github/workflows/nightly-prompt-validation.yml`
+  - Trigger: nightly schedule + manual dispatch
+  - Starts backend with `OPENAI_API_KEY` secret, runs `npm run prompt:validate`, uploads report artifacts
+
+---
+
+## 12. Contract Fixtures (`frontend/src/contracts/fixtures/`)
 
 These JSON snapshots are checked in CI by `npm run contract:check` to prevent accidental breaking changes to the API shape.
 
@@ -461,7 +503,7 @@ These JSON snapshots are checked in CI by `npm run contract:check` to prevent ac
 
 ---
 
-## 12. Implemented Features
+## 13. Implemented Features
 
 All of the following are fully implemented and operational.
 
