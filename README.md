@@ -102,7 +102,7 @@ If the token expires or is revoked, the application will detect this automatical
 
 ## Document Upload Operations (Workstream 3)
 
-You can upload an unstructured document plus a natural-language instruction (for example, "Add all dates in this document to my calendar"). The system extracts candidate operations and stages them through the same confirmation safety model used by chat writes.
+You can upload an unstructured document **or a picture** (PNG/JPEG) plus a natural-language instruction (for example, "Add all dates in this document to my calendar" or "Extract events from this screenshot"). For images, the backend uses **GPT-4o vision** to read text and layout from the photo, then produces the same calendar candidates as for text files. Everything is **confirmation-gated** before any write to Google Calendar.
 
 Supported file types:
 
@@ -111,9 +111,7 @@ Supported file types:
 - `.pdf`
 - `.xlsx`
 - `.ics`
-- `.png`
-- `.jpg`
-- `.jpeg`
+- `.png`, `.jpg`, `.jpeg` (photos, screenshots, scans of flyers)
 
 Document flow:
 

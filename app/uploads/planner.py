@@ -192,6 +192,25 @@ def _normalize_ics_event(
     )
 
 
+_SHARED_EXTRACTION_RULES = (
+    "Return strict JSON only. "
+    "Use the provided user instruction to decide which events to include. "
+    "If no year is provided, infer the next upcoming occurrence relative to now_local_iso. "
+    "If no explicit time is available, return all-day entries using YYYY-MM-DD for start_iso and end_iso. "
+    "Prefer source timezone when present, otherwise use default_timezone. "
+    "Skip events with ambiguous dates or insufficient schedule details."
+)
+
+_SYSTEM_PROMPT_TEXT = "You extract calendar-ready events from documents. " + _SHARED_EXTRACTION_RULES
+
+_SYSTEM_PROMPT_VISION = (
+    "You extract calendar-ready events from images: screenshots, photos of flyers or invitations, "
+    "handwritten notes, and similar pictures. Read visible text and layout; infer dates and times "
+    "when reasonable. When text is blurry or ambiguous, omit that event or use a lower confidence score. "
+    + _SHARED_EXTRACTION_RULES
+)
+
+
 async def _extract_candidates_via_ai(
     *,
     extracted: ExtractedContent,
@@ -201,15 +220,6 @@ async def _extract_candidates_via_ai(
     openai_api_key: str,
 ) -> list[Dict[str, Any]]:
     client = AsyncOpenAI(api_key=openai_api_key)
-    system_prompt = (
-        "You extract calendar-ready events from documents. "
-        "Return strict JSON only. "
-        "Use the provided user instruction to decide which events to include. "
-        "If no year is provided, infer the next upcoming occurrence relative to now_local_iso. "
-        "If no explicit time is available, return all-day entries using YYYY-MM-DD for start_iso and end_iso. "
-        "Prefer source timezone when present, otherwise use default_timezone. "
-        "Skip events with ambiguous dates or insufficient schedule details."
-    )
     user_prefix = (
         f"User instruction: {user_message}\n"
         f"default_timezone: {default_timezone}\n"
@@ -217,6 +227,7 @@ async def _extract_candidates_via_ai(
         "Return JSON object with a single key `candidates`."
     )
     if extracted["type"] == "image":
+        system_prompt = _SYSTEM_PROMPT_VISION
         image_data_url = f"data:{extracted['mime_type']};base64,{extracted['content_base64']}"
         completion = await client.chat.completions.create(
             model="gpt-4o",
@@ -231,12 +242,17 @@ async def _extract_candidates_via_ai(
                     "role": "user",
                     "content": [
                         {"type": "text", "text": user_prefix},
-                        {"type": "image_url", "image_url": {"url": image_data_url}},
+                        {
+                            "type": "image_url",
+                            # detail=low reduces tokens/latency; sufficient for screenshots and flyers
+                            "image_url": {"url": image_data_url, "detail": "low"},
+                        },
                     ],
                 },
             ],
         )
     else:
+        system_prompt = _SYSTEM_PROMPT_TEXT
         completion = await client.chat.completions.create(
             model="gpt-4o",
             temperature=0,

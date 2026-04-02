@@ -170,6 +170,15 @@ function App() {
     })
   }
 
+  function selectedUploadIsImage(): boolean {
+    if (!selectedFile) {
+      return false
+    }
+    return (
+      selectedFile.type.startsWith('image/') || /\.(png|jpg|jpeg)$/i.test(selectedFile.name)
+    )
+  }
+
   async function uploadAndAnalyzeDocument() {
     if (!selectedFile || !uploadMessage.trim()) {
       return
@@ -177,7 +186,7 @@ function App() {
     activeControllerRef.current?.abort()
     setLoading(true)
     setError(null)
-    setPhaseLabel('Uploading document')
+    setPhaseLabel('Uploading file')
     try {
       setUploadStatus('uploading')
       const uploaded = await uploadDocument(selectedFile)
@@ -185,7 +194,9 @@ function App() {
       setActiveUploadFilename(uploaded.filename)
       setUploadStatus(uploaded.status)
 
-      setPhaseLabel('AI is reading your document...')
+      setPhaseLabel(
+        selectedUploadIsImage() ? 'AI is reading your image...' : 'AI is reading your document...'
+      )
       setUploadStatus('analyzing')
       const response = await analyzeUploadedDocument(uploaded.upload_id, {
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',

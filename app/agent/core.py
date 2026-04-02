@@ -1122,6 +1122,8 @@ def _extract_general_search_term(
         r"\b(events?|appointments?|meetings?|reminders?)\b",
         r"\b(for|in|on|at|from|during|so far)\b",
         r"\b(please|can you|could you)\b",
+        # Copulas / linking verbs: without this, "What is on my calendar …" can strip down to "is".
+        r"\b(is|are|was|were|am|be|been|being)\b",
     ]
     for pattern in patterns:
         text = re.sub(pattern, " ", text)

@@ -19,12 +19,18 @@ export function DocumentUploadPanel({
   onMessageChange,
   onAnalyze,
 }: DocumentUploadPanelProps) {
+  const isImageSelection =
+    selectedFile !== null &&
+    (selectedFile.type.startsWith('image/') ||
+      /\.(png|jpg|jpeg)$/i.test(selectedFile.name))
+
   return (
     <section className="panel">
-      <h2>Document Upload</h2>
+      <h2>Documents and images</h2>
       <p className="summary-note">
-        Upload a file and tell the AI what to do with it, for example: Add all dates in this
-        document to my calendar.
+        Upload a document, spreadsheet, or photo (PNG/JPEG) and describe what you want. For
+        example: add every date in this file to my calendar, or extract events from this screenshot
+        of an invitation.
       </p>
       <label className="summary-note" htmlFor="document-upload-message">
         Instruction
@@ -33,7 +39,11 @@ export function DocumentUploadPanel({
         id="document-upload-message"
         value={message}
         onChange={(event) => onMessageChange(event.target.value)}
-        placeholder="Add all the dates in this document to my calendar"
+        placeholder={
+          isImageSelection
+            ? 'Extract all events from this image and add them to my calendar'
+            : 'Add all the dates in this document to my calendar'
+        }
         disabled={loading}
         rows={3}
       />
@@ -43,6 +53,11 @@ export function DocumentUploadPanel({
         onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
         disabled={loading}
       />
+      {isImageSelection && (
+        <p className="summary-note">
+          The AI will read text and dates from this picture (same confirmation step as documents).
+        </p>
+      )}
       <p className="summary-note">
         Selected: {selectedFile ? `${selectedFile.name} (${selectedFile.size} bytes)` : 'none'}
       </p>

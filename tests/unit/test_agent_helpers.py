@@ -1,4 +1,8 @@
-from app.agent.core import _build_reauth_required_response, _derive_action
+from app.agent.core import (
+    _build_reauth_required_response,
+    _derive_action,
+    _extract_general_search_term,
+)
 
 
 def test_derive_action_prefers_mixed_for_edit_plus_lookup() -> None:
@@ -33,3 +37,29 @@ def test_build_reauth_required_response_shape() -> None:
     assert response["summary"]["service"] == "google_calendar"
     assert response["summary"]["resume_context"]["resume_id"] == "abc"
     assert response["meta"]["query"] == "add my events"
+
+
+def test_extract_general_search_term_does_not_use_copula_as_query() -> None:
+    window = {
+        "source_phrase": "tomorrow",
+        "start_iso": "2026-04-03T00:00:00-04:00",
+        "end_iso": "2026-04-03T23:59:59-04:00",
+        "timezone": "America/New_York",
+    }
+    assert _extract_general_search_term("What is on my calendar tomorrow", window) is None
+
+
+def test_extract_general_search_term_keeps_subject_terms() -> None:
+    window = {
+        "source_phrase": "next month",
+        "start_iso": "2026-05-01T00:00:00-04:00",
+        "end_iso": "2026-05-31T23:59:59-04:00",
+        "timezone": "America/New_York",
+    }
+    assert (
+        _extract_general_search_term(
+            "what vex robotics meetings do I have next month",
+            window,
+        )
+        == "vex robotics"
+    )

@@ -108,7 +108,7 @@ taskkill /PID <PID> /F
 | `POST` | `/agent/chat` | Main natural-language entrypoint; body: `{message, context}` |
 | `POST` | `/agent/uploads` | Uploads a document and returns `upload_id` with status |
 | `GET` | `/agent/uploads/{upload_id}` | Returns upload metadata/status and stored analysis (if any) |
-| `POST` | `/agent/uploads/{upload_id}/analyze` | Extracts document text, plans operation candidates, and stages confirmation |
+| `POST` | `/agent/uploads/{upload_id}/analyze` | Extracts content (text or vision for images), plans operation candidates, and stages confirmation |
 
 ### CORS
 
@@ -215,7 +215,7 @@ Every response from `/agent/chat` is a JSON object with:
 
 ## 4.1 Document Upload Pipeline (`app/uploads/`, `app/main.py`)
 
-Document upload flow is AI-assisted and confirmation-gated:
+Document upload flow is AI-assisted and confirmation-gated. **Images** use the same HTTP routes; vision is handled inside the planner (see below).
 
 1. `POST /agent/uploads` accepts `txt`/`docx`/`pdf`/`xlsx`/`ics`/`png`/`jpg`/`jpeg`, validates file size/type, and stores the file in `data/uploads/` with in-memory metadata.
 2. `POST /agent/uploads/{upload_id}/analyze` requires a `message` instruction and optional `timezone`.
@@ -224,8 +224,9 @@ Document upload flow is AI-assisted and confirmation-gated:
    - image content base64 + MIME (`png`, `jpg`, `jpeg`)
    - deterministic ICS event list (`ics`)
 4. `plan_document_operations(...)` routes extraction:
-   - GPT-4o JSON-schema extraction for text/image documents
-   - deterministic mapping for ICS events
+   - **Text:** GPT-4o with document text in the user message.
+   - **Image:** GPT-4o **vision** — user message plus an `image_url` (data URL) with `detail: low` for latency/cost; JSON-schema output matches text path.
+   - **ICS:** deterministic mapping (no vision).
 5. Planned candidates are staged through `stage_document_candidates_for_confirmation(...)`, which writes to `PENDING_CONFIRMATIONS`.
 6. User confirms/cancels through existing `operation_confirmation` flow in `/agent/chat`.
 7. On confirm, operations are applied using existing calendar mutation APIs (`create_or_update_event`, `update_events_by_id`, `delete_events`).
